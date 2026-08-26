@@ -151,16 +151,22 @@ pc.addIceCandidate(data.candidate).catch(function(){});
 function createPC(initiator){
 pc=new RTCPeerConnection({iceServers:[
 {urls:'stun:stun.l.google.com:19302'},
-{urls:'stun:stun.relay.metered.ca:80'},
-{urls:'turn:global.relay.metered.ca:80',username:'e9e310c35b955f5e8f6dc742',credential:'W+U2/qfQVGLbqk4M'},
-{urls:'turn:global.relay.metered.ca:443',username:'e9e310c35b955f5e8f6dc742',credential:'W+U2/qfQVGLbqk4M'},
-{urls:'turn:global.relay.metered.ca:443?transport=tcp',username:'e9e310c35b955f5e8f6dc742',credential:'W+U2/qfQVGLbqk4M'}
-]});
+{urls:'stun:stun1.l.google.com:19302'},
+{urls:'stun:stun2.l.google.com:19302'},
+{urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+{urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
+{urls:'turns:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}
+],iceTransportPolicy:'all'});
 pc.onicecandidate=function(e){
-if(e.candidate&&channel){
-channel.publish('signal',{type:'ice',from:myId,candidate:e.candidate});
+if(e.candidate){
+log('ice: '+e.candidate.type+' '+e.candidate.protocol);
+if(channel)channel.publish('signal',{type:'ice',from:myId,candidate:e.candidate});
+}else{
+log('ice gathering done');
 }
 };
+pc.onicecandidateerror=function(e){log('ice err: '+e.errorCode+' '+e.url,'#a66')};
+pc.oniceconnectionstatechange=function(){log('ice conn: '+pc.iceConnectionState)};
 pc.onconnectionstatechange=function(){
 log('rtc: '+pc.connectionState);
 if(pc.connectionState==='connected'){
