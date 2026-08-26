@@ -71,11 +71,14 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 
 <div class="section">
 <div class="section-title">SOCKS Bridge</div>
-<button id="btnSocks" disabled style="width:100%;font-size:11px">Download Bridge</button>
+<div class="row">
+<button id="btnSocks" disabled style="flex:1;font-size:11px">Download</button>
+<button id="btnBridge" style="flex:1;font-size:11px">Connect</button>
+</div>
 <div class="row" style="margin-top:6px;align-items:center">
 <span class="label">Bridge:</span> <span id="socksStatus" class="status off">offline</span>
 </div>
-<div style="font-size:9px;color:#555;margin-top:4px">rename .txt to .exe and run</div>
+<div style="font-size:9px;color:#555;margin-top:4px">run bridge.exe ROOM then click Connect</div>
 </div>
 
 <div class="section">
@@ -178,13 +181,14 @@ tryConnectBridge();
 
 function tryConnectBridge(){
 try{
+log('trying local bridge...');
 bridge=new WebSocket('ws://127.0.0.1:9998');
 bridge.onopen=function(){
-log('local bridge connected','#6a6');
+log('bridge connected!','#6a6');
 setS('socksStatus',1,'online');
 };
-bridge.onclose=function(){setS('socksStatus',0,'offline');bridge=null};
-bridge.onerror=function(){bridge=null};
+bridge.onclose=function(){log('bridge closed');setS('socksStatus',0,'offline');bridge=null};
+bridge.onerror=function(e){log('bridge error (normal if no bridge running)');bridge=null};
 bridge.onmessage=function(e){
 var m=JSON.parse(e.data);
 if(m.type==='bridge_init'){
@@ -401,6 +405,7 @@ $('httpOut').style.color='#a66';
 var gen=function(){return'XXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
 
 $('btnBackend').onclick=connectBackend;
+$('btnBridge').onclick=tryConnectBridge;
 $('btnGetBackend').onclick=function(){
 var a=document.createElement('a');
 a.href='backend.py';
