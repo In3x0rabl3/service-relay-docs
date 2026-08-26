@@ -149,7 +149,13 @@ pc.addIceCandidate(data.candidate).catch(function(){});
 }
 
 function createPC(initiator){
-pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+pc=new RTCPeerConnection({iceServers:[
+{urls:'stun:stun.l.google.com:19302'},
+{urls:'stun:stun.relay.metered.ca:80'},
+{urls:'turn:global.relay.metered.ca:80',username:'e9e310c35b955f5e8f6dc742',credential:'W+U2/qfQVGLbqk4M'},
+{urls:'turn:global.relay.metered.ca:443',username:'e9e310c35b955f5e8f6dc742',credential:'W+U2/qfQVGLbqk4M'},
+{urls:'turn:global.relay.metered.ca:443?transport=tcp',username:'e9e310c35b955f5e8f6dc742',credential:'W+U2/qfQVGLbqk4M'}
+]});
 pc.onicecandidate=function(e){
 if(e.candidate&&channel){
 channel.publish('signal',{type:'ice',from:myId,candidate:e.candidate});
