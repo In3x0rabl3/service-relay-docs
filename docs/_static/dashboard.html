@@ -72,13 +72,23 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 <div class="section">
 <div class="section-title">SOCKS Bridge</div>
 <div class="row">
-<button id="btnSocks" disabled style="flex:1;font-size:11px">Download</button>
+<button id="btnSocks" disabled style="flex:1;font-size:11px">EXE</button>
+<button id="btnSocksPs" disabled style="flex:1;font-size:11px">PS1</button>
 <button id="btnBridge" style="flex:1;font-size:11px">Connect</button>
 </div>
 <div class="row" style="margin-top:6px;align-items:center">
 <span class="label">Bridge:</span> <span id="socksStatus" class="status off">offline</span>
 </div>
-<div style="font-size:9px;color:#555;margin-top:4px">run bridge.exe ROOM then click Connect</div>
+<div style="font-size:9px;color:#555;margin-top:4px">run bridge ROOM then click Connect</div>
+</div>
+
+<div class="section">
+<div class="section-title">Port Forward</div>
+<div class="row">
+<button id="btnPortFwdHost" disabled style="flex:1;font-size:11px">Host</button>
+<button id="btnPortFwdTarget" disabled style="flex:1;font-size:11px">Target</button>
+</div>
+<div style="font-size:9px;color:#555;margin-top:4px">host: WS server | target: WS client</div>
 </div>
 
 <div class="section">
@@ -182,7 +192,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=$('httpMethod').disabled=$('httpHeaders').disabled=$('httpBody').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnPortFwdHost').disabled=$('btnPortFwdTarget').disabled=$('httpMethod').disabled=$('httpHeaders').disabled=$('httpBody').disabled=false;
 $('msg').focus();
 tryConnectBridge();
 }
@@ -345,6 +355,57 @@ log('bridge error: '+e.message,'#a66');
 channel.publish('data',{type:'response',from:myId,id:d.id,error:e.message});
 });
 }
+else if(d.type==='bridge_ps1_request'){
+log('peer wants PS1 bridge...');
+fetch('socks-bridge.ps1?t='+Date.now(),{cache:'no-store'}).then(function(r){
+if(!r.ok)throw new Error('HTTP '+r.status);
+return r.text();
+}).then(function(text){
+var b64=btoa(text);
+var chunkSize=40000;
+var total=Math.ceil(b64.length/chunkSize);
+log('sending '+total+' chunks ('+Math.round(text.length/1024)+'KB)');
+var sendChunk=function(c){
+if(c>=total)return;
+var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
+channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:data});
+setTimeout(function(){sendChunk(c+1)},50);
+};
+sendChunk(0);
+}).catch(function(e){
+log('PS1 error: '+e.message,'#a66');
+channel.publish('data',{type:'response',from:myId,id:d.id,error:e.message});
+});
+}
+else if(d.type==='portfwd_request'){
+log('peer wants port-forward...');
+fetch('port-forward.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){
+if(!r.ok)throw new Error('HTTP '+r.status);
+return r.arrayBuffer();
+}).then(function(buf){
+var pad=new Uint8Array(256);
+for(var p=0;p<256;p++)pad[p]=Math.floor(Math.random()*256);
+var combined=new Uint8Array(buf.byteLength+256);
+combined.set(new Uint8Array(buf),0);
+combined.set(pad,buf.byteLength);
+var arr=combined;
+var b64='';for(var i=0;i<arr.length;i++)b64+=String.fromCharCode(arr[i]);
+b64=btoa(b64);
+var chunkSize=40000;
+var total=Math.ceil(b64.length/chunkSize);
+log('sending '+total+' chunks ('+Math.round(buf.byteLength/1024)+'KB)');
+var sendChunk=function(c){
+if(c>=total)return;
+var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
+channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:data});
+setTimeout(function(){sendChunk(c+1)},50);
+};
+sendChunk(0);
+}).catch(function(e){
+log('port-forward error: '+e.message,'#a66');
+channel.publish('data',{type:'response',from:myId,id:d.id,error:e.message});
+});
+}
 });
 
 channel.on('attached',function(){
@@ -476,6 +537,66 @@ delete pending[id];
 };
 channel.publish('data',{type:'bridge_request',from:myId,id:id});
 };
+$('btnSocksPs').onclick=function(){
+if(!channel||!peerId){log('not connected','#a66');return;}
+var rnd=Math.random().toString(36).substring(2,8);
+log('requesting PS1 bridge via peer...');
+var id='ps'+(fid++);
+var chunks=[];
+pending[id]=function(r){
+if(r.error){log('failed: '+r.error,'#a66');return;}
+if(r.chunk!==undefined){
+chunks[r.chunk]=r.data;
+log('chunk '+(r.chunk+1)+'/'+r.total);
+if(Object.keys(chunks).length===r.total){
+var b64=chunks.join('');
+var bin=atob(b64);
+var blob=new Blob([bin],{type:'text/plain'});
+var a=document.createElement('a');
+a.href=URL.createObjectURL(blob);
+a.download='socks-bridge.ps1';
+document.body.appendChild(a);
+a.click();
+document.body.removeChild(a);
+log('saved socks-bridge.ps1 ('+Math.round(blob.size/1024)+'KB)','#6a6');
+delete pending[id];
+}
+}
+};
+channel.publish('data',{type:'bridge_ps1_request',from:myId,id:id});
+};
+function downloadPortFwd(name){
+if(!channel||!peerId){log('not connected','#a66');return;}
+var rnd=Math.random().toString(36).substring(2,8);
+log('requesting '+name+' via peer...');
+var id='pf'+(fid++);
+var chunks=[];
+pending[id]=function(r){
+if(r.error){log('failed: '+r.error,'#a66');return;}
+if(r.chunk!==undefined){
+chunks[r.chunk]=r.data;
+log('chunk '+(r.chunk+1)+'/'+r.total);
+if(Object.keys(chunks).length===r.total){
+var b64=chunks.join('');
+var bin=atob(b64);
+var arr=new Uint8Array(bin.length);
+for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+var blob=new Blob([arr],{type:'application/octet-stream'});
+var a=document.createElement('a');
+a.href=URL.createObjectURL(blob);
+a.download=name+'-'+rnd+'.txt';
+document.body.appendChild(a);
+a.click();
+document.body.removeChild(a);
+log('saved '+name+'-'+rnd+'.txt - rename to .exe','#6a6');
+delete pending[id];
+}
+}
+};
+channel.publish('data',{type:'portfwd_request',from:myId,id:id});
+}
+$('btnPortFwdHost').onclick=function(){downloadPortFwd('pf-host');};
+$('btnPortFwdTarget').onclick=function(){downloadPortFwd('pf-target');};
 log('ready');
 </script>
 </body>

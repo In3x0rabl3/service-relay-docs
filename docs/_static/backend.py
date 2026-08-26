@@ -135,7 +135,7 @@ async def handle_client(reader, writer):
     if lines[0].startswith('GET '):
         path = lines[0].split(' ')[1].lstrip('/')
         if not path or path == 'dashboard': path = 'dashboard.html'
-        if path in ('dashboard.html', 'socks-bridge.txt', 'backend.py'):
+        if path in ('dashboard.html', 'socks-bridge.txt', 'socks-bridge.ps1', 'port-forward.txt', 'backend.py'):
             try:
                 with open(path, 'rb') as f:
                     data = f.read()
