@@ -199,6 +199,11 @@ peerId=d.from;
 setConnected();
 if(isNew)channel.publish('data',{type:'hello',from:myId});
 }
+else if(d.type==='bridge_hello'){
+log('SOCKS bridge connected','#6a6');
+setS('socksStatus',1,'online');
+channel.publish('data',{type:'bridge_ack',from:myId});
+}
 else if(d.type==='chat'){
 $('chat').innerHTML+='<div class="msg peer">'+d.text+'</div>';
 $('chat').scrollTop=9999;
