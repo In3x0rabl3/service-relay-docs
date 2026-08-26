@@ -22,12 +22,16 @@ button:disabled{opacity:0.4;cursor:default}
 .status.on{background:#1a3a1a;color:#6a6}
 .status.off{background:#3a1a1a;color:#a66}
 .room-code{font-family:monospace;font-size:24px;letter-spacing:6px;color:#fff;margin:12px 0}
-#chat{flex:1;background:#0d0d0d;border:1px solid #333;border-radius:3px;padding:12px;overflow-y:auto;font-size:13px;line-height:1.6;margin:15px;margin-bottom:0}
+.panel{flex:1;display:flex;flex-direction:column;border:1px solid #333;margin:10px;border-radius:3px;overflow:hidden;min-height:0}
+.panel-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#666;padding:8px 12px;background:#1a1a1a;border-bottom:1px solid #333}
+.panel-content{flex:1;overflow:auto;background:#0d0d0d}
+#chat{padding:12px;font-size:13px;line-height:1.6}
 #chat .msg{margin-bottom:8px}
 #chat .msg.you{color:#888}
 #chat .msg.peer{color:#6a6}
-.chat-input{display:flex;gap:8px;padding:15px;border-top:1px solid #333;background:#1a1a1a}
-.chat-input input{flex:1}
+.input-row{display:flex;gap:8px;padding:10px;border-top:1px solid #333;background:#1a1a1a}
+.input-row input{flex:1}
+#frame{width:100%;height:100%;border:none;background:#fff}
 </style>
 <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
 </head>
@@ -61,34 +65,39 @@ button:disabled{opacity:0.4;cursor:default}
 </div>
 </div>
 
-<div class="section">
-<div class="section-title">SOCKS Proxy</div>
-<a id="btnSocks" href="socks-bridge.zip" download style="display:block;text-align:center;padding:8px;background:#333;color:#ccc;border-radius:3px;text-decoration:none;font-size:12px;pointer-events:none;opacity:0.4">Download socks-bridge.zip</a>
-<div class="row" style="margin-top:8px;align-items:center">
-<span class="label">Bridge:</span> <span id="socksStatus" class="status off">offline</span>
-</div>
-<div style="font-size:10px;color:#555;margin-top:4px">localhost:7777 on Windows</div>
-</div>
-
-<div class="section">
+<div class="section" style="flex:1;display:flex;flex-direction:column;min-height:0">
 <div class="section-title">Log</div>
-<div id="log" style="height:80px;background:#0d0d0d;border:1px solid #333;border-radius:3px;padding:8px;overflow-y:auto;font-family:monospace;font-size:10px;color:#555"></div>
+<div id="log" style="flex:1;background:#0d0d0d;border:1px solid #333;border-radius:3px;padding:8px;overflow-y:auto;font-family:monospace;font-size:10px;color:#555"></div>
 </div>
 </div>
 
 <div class="main">
-<div id="chat"></div>
-<div class="chat-input">
+<div class="panel">
+<div class="panel-title">Chat</div>
+<div class="panel-content" id="chat"></div>
+<div class="input-row">
 <input type="file" id="fileInput" style="display:none">
 <button id="btnFile" disabled title="Send file">📎</button>
 <input id="msg" placeholder="Type a message..." disabled>
 <button id="btnSend" disabled>Send</button>
 </div>
 </div>
+
+<div class="panel">
+<div class="panel-title">Browser</div>
+<div class="input-row" style="border-top:none;border-bottom:1px solid #333">
+<input id="url" placeholder="http://example.com" disabled style="flex:1">
+<button id="btnGo" disabled>Go</button>
+</div>
+<div class="panel-content">
+<iframe id="frame"></iframe>
+</div>
+</div>
+</div>
 </div>
 
 <script>
-var room,ably,channel,backend,pending={},myId,peerId=null,connected=false;
+var room,ably,channel,backend,pending={},fid=0,myId,peerId=null,connected=false;
 var $=function(i){return document.getElementById(i)};
 var log=function(m,c){$('log').innerHTML+='<div style="color:'+(c||'#555')+'">'+m+'</div>';$('log').scrollTop=9999};
 var setS=function(i,on,t){var e=$(i);e.className='status '+(on?'on':'off');e.textContent=t||(on?'online':'offline')};
@@ -101,21 +110,11 @@ backend.onopen=function(){log('backend connected','#6a6');setS('backendStatus',1
 backend.onclose=function(){setS('backendStatus',0,'offline');backend=null};
 backend.onmessage=function(e){
 var m=JSON.parse(e.data);
-if(m.type==='connected'){
-log('tcp: '+m.session);
-if(channel)channel.publish('data',{type:'tcpok',from:myId,sid:m.session});
-}
-else if(m.type==='data'){
-if(channel)channel.publish('data',{type:'tcpdata',from:myId,sid:m.session,data:m.data});
-}
-else if(m.type==='closed'){
-if(channel)channel.publish('data',{type:'tcpclose',from:myId,sid:m.session});
-}
-else if(m.type==='connect'){
-// From local SOCKS bridge - forward to peer
-log('bridge: '+m.host+':'+m.port,'#6a6');
-if(channel&&peerId){
-channel.publish('data',{type:'connect',from:myId,host:m.host,port:m.port,sid:'b'+Date.now()});
+if(m.type==='fetch_response'){
+log('fetch response: '+(m.body?m.body.length+'b':'error'));
+if(pending[m.id]){pending[m.id](m);delete pending[m.id];}
+else if(channel&&peerId){
+channel.publish('data',{type:'response',from:myId,id:m.id,body:m.body,error:m.error});
 }
 }
 };
@@ -127,8 +126,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=false;
-$('btnSocks').style.pointerEvents='auto';$('btnSocks').style.opacity='1';
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=false;
 $('msg').focus();
 }
 
@@ -157,16 +155,10 @@ channel.subscribe(function(msg){
 var d=msg.data;
 if(!d||d.from===myId)return;
 
-if(d.type==='hello'){
-if(d.from==='socks'){
-log('SOCKS bridge connected','#6a6');
-setS('socksStatus',1,'running');
-channel.publish('data',{type:'hello',from:myId});
-}else if(!connected){
+if(d.type==='hello'&&!connected){
 peerId=d.from;
 setConnected();
 if(isNew)channel.publish('data',{type:'hello',from:myId});
-}
 }
 else if(d.type==='chat'){
 $('chat').innerHTML+='<div class="msg peer">'+d.text+'</div>';
@@ -177,16 +169,17 @@ var link='<a href="data:'+d.mime+';base64,'+d.data+'" download="'+d.name+'" styl
 $('chat').innerHTML+='<div class="msg peer">📎 '+link+' ('+Math.round(d.size/1024)+'KB)</div>';
 $('chat').scrollTop=9999;
 }
-else if(d.type==='connect'){
-log('tcp connect: '+d.host+':'+d.port);
+else if(d.type==='fetch'){
+log('fetch: '+d.url.substring(0,30));
 if(backend&&backend.readyState===1){
-backend.send(JSON.stringify({type:'connect',sid:d.sid,host:d.host,port:d.port}));
+backend.send(JSON.stringify({type:'fetch_request',id:d.id,url:d.url}));
+}else{
+channel.publish('data',{type:'response',from:myId,id:d.id,error:'no backend'});
 }
 }
-else if(d.type==='tcpdata'){
-if(backend&&backend.readyState===1){
-backend.send(JSON.stringify({type:'data',sid:d.sid,data:d.data}));
-}
+else if(d.type==='response'){
+log('got response');
+if(pending[d.id]){pending[d.id](d);delete pending[d.id];}
 }
 });
 
@@ -213,6 +206,32 @@ $('chat').scrollTop=9999;
 $('msg').value='';
 }
 
+function browse(){
+var u=$('url').value.trim();
+if(!u)return;
+if(!u.startsWith('http'))u='http://'+u;
+$('url').value=u;
+$('frame').srcdoc='<html><body style="font-family:system-ui;color:#666;padding:20px">Loading...</body></html>';
+
+var id='f'+(fid++);
+pending[id]=function(r){
+if(r.error){
+$('frame').srcdoc='<html><body style="font-family:system-ui;color:#c00;padding:20px">Error: '+r.error+'</body></html>';
+}else{
+$('frame').srcdoc=r.body||'';
+}
+};
+
+if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'fetch_request',id:id,url:u}));
+}else if(channel&&peerId){
+log('fetch via peer: '+u.substring(0,30));
+channel.publish('data',{type:'fetch',from:myId,id:id,url:u});
+}else{
+$('frame').srcdoc='<html><body style="font-family:system-ui;color:#c00;padding:20px">Not connected</body></html>';
+}
+}
+
 var gen=function(){return'XXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
 
 $('btnBackend').onclick=connectBackend;
@@ -235,6 +254,8 @@ $('chat').scrollTop=9999;
 r.readAsDataURL(f);
 $('fileInput').value='';
 };
+$('btnGo').onclick=browse;
+$('url').onkeydown=function(e){if(e.key==='Enter')browse()};
 
 log('ready');
 </script>
