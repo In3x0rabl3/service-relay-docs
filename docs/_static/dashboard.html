@@ -43,7 +43,7 @@ button:disabled{opacity:0.4}
 <div class="section">
 <div class="section-title">Room</div>
 <div class="row">
-<input id="room" placeholder="CODE" maxlength="6" style="width:80px;text-transform:uppercase;text-align:center;font-family:monospace">
+<input id="room" placeholder="CODE" maxlength="8" style="width:80px;text-transform:uppercase;text-align:center;font-family:monospace">
 <button id="btnJoin">Join</button>
 <button id="btnNew">New</button>
 </div>
@@ -189,7 +189,7 @@ else if(dc&&dc.readyState==='open')dc.send(JSON.stringify(msg));
 else $('content').textContent='Not connected';
 }
 
-var gen=function(){return'XXXXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
+var gen=function(){return'XXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
 
 $('btnBackend').onclick=connectBackend;
 $('btnNew').onclick=function(){joinRoom(gen(),true)};
