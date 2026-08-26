@@ -31,7 +31,7 @@ button:disabled{opacity:0.4;cursor:default}
 #chat .msg.peer{color:#6a6}
 .input-row{display:flex;gap:8px;padding:10px;border-top:1px solid #333;background:#1a1a1a}
 .input-row input{flex:1}
-#frame{width:100%;height:100%;border:none;background:#0d0d0d}
+select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 </style>
 <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
 </head>
@@ -93,13 +93,22 @@ button:disabled{opacity:0.4;cursor:default}
 </div>
 
 <div class="panel">
-<div class="panel-title">Browser</div>
+<div class="panel-title">HTTP</div>
 <div class="panel-content">
-<iframe id="frame"></iframe>
+<pre id="httpOut" style="margin:0;padding:12px;font-size:11px;color:#6a6;white-space:pre-wrap;word-break:break-all"></pre>
 </div>
-<div class="input-row">
-<input id="url" placeholder="http://example.com" disabled style="flex:1">
-<button id="btnGo" disabled>Go</button>
+<div class="input-row" style="flex-wrap:wrap">
+<select id="httpMethod" disabled style="width:70px;padding:8px 4px">
+<option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>HEAD</option><option>PATCH</option>
+</select>
+<input id="url" placeholder="http://example.com" disabled style="flex:1;min-width:150px">
+<button id="btnGo" disabled>Send</button>
+</div>
+<div class="input-row" style="border-top:none;padding-top:0">
+<input id="httpHeaders" placeholder="Headers: Content-Type: application/json" disabled style="flex:1;font-size:10px">
+</div>
+<div class="input-row" style="border-top:none;padding-top:0">
+<input id="httpBody" placeholder="Body (for POST/PUT/PATCH)" disabled style="flex:1;font-size:10px">
 </div>
 </div>
 </div>
@@ -138,7 +147,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=$('httpMethod').disabled=$('httpHeaders').disabled=$('httpBody').disabled=false;
 $('msg').focus();
 }
 
@@ -223,25 +232,40 @@ var u=$('url').value.trim();
 if(!u)return;
 if(!u.startsWith('http'))u='http://'+u;
 $('url').value=u;
-$('frame').srcdoc='<html><body style="font-family:system-ui;color:#666;padding:20px;background:#0d0d0d">Loading...</body></html>';
-log('fetching: '+u.substring(0,40));
+var method=$('httpMethod').value;
+var hdrs=$('httpHeaders').value.trim();
+var body=$('httpBody').value;
+$('httpOut').textContent=method+' '+u+'\n\nLoading...';
+$('httpOut').style.color='#666';
+log(method+': '+u.substring(0,30));
 
 var id='f'+(fid++);
+var req={type:'fetch_request',id:id,url:u,method:method};
+if(hdrs)req.headers=hdrs;
+if(body&&(method==='POST'||method==='PUT'||method==='PATCH'))req.body=body;
+
 pending[id]=function(r){
 if(r.error){
-$('frame').srcdoc='<html><body style="font-family:system-ui;color:#c66;padding:20px;background:#0d0d0d">Error: '+r.error+'</body></html>';
+$('httpOut').textContent='ERROR: '+r.error;
+$('httpOut').style.color='#a66';
 }else{
-$('frame').srcdoc=r.body||'<html><body style="background:#0d0d0d"></body></html>';
+var out='HTTP '+r.status+'\n';
+if(r.headers)out+=r.headers+'\n';
+out+='\n'+r.body;
+$('httpOut').textContent=out;
+$('httpOut').style.color='#6a6';
 }
+$('httpOut').scrollTop=0;
 };
 
 if(backend&&backend.readyState===1){
-backend.send(JSON.stringify({type:'fetch_request',id:id,url:u}));
+backend.send(JSON.stringify(req));
 }else if(channel&&peerId){
-log('fetch via peer: '+u.substring(0,30));
-channel.publish('data',{type:'fetch',from:myId,id:id,url:u});
+log('fetch via peer');
+channel.publish('data',Object.assign({type:'fetch',from:myId},req));
 }else{
-$('frame').srcdoc='<html><body style="font-family:system-ui;color:#c66;padding:20px;background:#0d0d0d">Not connected</body></html>';
+$('httpOut').textContent='Not connected';
+$('httpOut').style.color='#a66';
 }
 }
 
