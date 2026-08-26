@@ -24,7 +24,8 @@ button:disabled{opacity:0.4}
 #chat{background:#111;border:1px solid #333;border-radius:3px;padding:8px;height:80px;overflow-y:auto;font-size:12px}
 .bar{padding:10px 15px;border-bottom:1px solid #333;display:flex;gap:8px;background:#1a1a1a}
 .bar input{flex:1;background:#111}
-#content{flex:1;padding:15px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre-wrap;background:#0a0a0a;color:#888}
+#content{flex:1;overflow:auto;background:#fff}
+#content iframe{width:100%;height:100%;border:none}
 </style>
 <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
 </head>
@@ -74,7 +75,7 @@ button:disabled{opacity:0.4}
 <input id="url" placeholder="http://example.com" disabled>
 <button id="btnGo" disabled>Fetch</button>
 </div>
-<div id="content">Connect to room to browse via tunnel.</div>
+<div id="content"><iframe id="frame"></iframe></div>
 </div>
 </div>
 
@@ -180,16 +181,19 @@ $('chat').innerHTML+='<div style="color:#888">you: '+text+'</div>';
 
 function browse(){
 var u=$('url').value.trim();if(!u)return;
-$('content').textContent='Loading...';
+$('frame').srcdoc='<html><body style="font-family:system-ui;color:#666">Loading...</body></html>';
 var id='f'+(fid++);
-pending[id]=function(r){$('content').textContent=r.error?'Error: '+r.error:r.body||'(empty)'};
+pending[id]=function(r){
+if(r.error)$('frame').srcdoc='<html><body style="font-family:system-ui;color:#a00">Error: '+r.error+'</body></html>';
+else $('frame').srcdoc=r.body||'';
+};
 
 if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'fetch_request',id:id,url:u}));
 }else if(channel&&peerId){
 channel.publish('data',{type:'fetch',from:myId,id:id,url:u});
 }else{
-$('content').textContent='Not connected';
+$('frame').srcdoc='<html><body style="font-family:system-ui;color:#a00">Not connected</body></html>';
 }
 }
 
