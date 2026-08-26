@@ -118,6 +118,19 @@ async def handle_client(reader, writer):
     for l in lines[1:]:
         if ':' in l: k, v = l.split(':', 1); headers[k.lower().strip()] = v.strip()
 
+    # Check for WebSocket upgrade FIRST
+    if headers.get('upgrade', '').lower() == 'websocket':
+        key = headers.get('sec-websocket-key', '')
+        accept = base64.b64encode(hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()).decode()
+        writer.write(f'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n'.encode())
+        await writer.drain()
+        ws = WS(reader, writer)
+        log.info('Dashboard connected')
+        await handle_ws(ws)
+        writer.close()
+        log.info('Dashboard disconnected')
+        return
+
     # Serve static files
     if lines[0].startswith('GET '):
         path = lines[0].split(' ')[1].lstrip('/')
@@ -132,18 +145,13 @@ async def handle_client(reader, writer):
                 writer.write(b'HTTP/1.1 404 Not Found\r\n\r\nFile not found: ' + path.encode())
             await writer.drain(); writer.close(); return
 
-    if headers.get('upgrade', '').lower() != 'websocket':
-        writer.write(b'HTTP/1.1 400 Bad Request\r\n\r\n')
-        await writer.drain(); writer.close(); return
+    # Unknown request
+    writer.write(b'HTTP/1.1 400 Bad Request\r\n\r\n')
+    await writer.drain(); writer.close()
 
-    key = headers.get('sec-websocket-key', '')
-    accept = base64.b64encode(hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()).decode()
-    writer.write(f'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n'.encode())
-    await writer.drain()
 
-    ws = WS(reader, writer)
-    log.info('Dashboard connected')
-
+async def handle_ws(ws):
+    """Handle WebSocket messages from dashboard."""
     try:
         while not ws.closed:
             data = await ws.recv()
@@ -167,9 +175,6 @@ async def handle_client(reader, writer):
                     del sessions[s]
     except Exception as e:
         log.error(f'Error: {e}')
-    finally:
-        writer.close()
-        log.info('Dashboard disconnected')
 
 
 async def main():
