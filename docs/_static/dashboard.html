@@ -29,6 +29,7 @@ button:disabled{opacity:0.4;cursor:default}
 .info{color:#668}.ok{color:#686}.err{color:#866}
 </style>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -83,12 +84,14 @@ button:disabled{opacity:0.4;cursor:default}
 </div>
 
 <script>
+(function(){
 let peer,conn,room,backend,fetchId=0,pending={};
-const log=(m,c='info')=>{const e=document.getElementById('log');const t=new Date().toTimeString().substr(0,5);e.innerHTML+=`<div class="${c}">${t} ${m}</div>`;e.scrollTop=e.scrollHeight};
-const setStatus=(id,on,t)=>{const e=document.getElementById(id);e.className='status '+(on?'on':'off');e.textContent=t||(on?'on':'off')};
+const $=id=>document.getElementById(id);
+const log=(m,c='info')=>{const e=$('log');const t=new Date().toTimeString().substr(0,5);e.innerHTML+='<div class="'+c+'">'+t+' '+m+'</div>';e.scrollTop=e.scrollHeight};
+const setStatus=(id,on,t)=>{const e=$(id);e.className='status '+(on?'on':'off');e.textContent=t||(on?'on':'off')};
 
 function connectBackend(){
-const url=document.getElementById('backend').value;
+const url=$('backend').value;
 try{
 backend=new WebSocket(url);
 backend.onopen=()=>{log('backend connected','ok');setStatus('backendStatus',true,'on')};
@@ -100,76 +103,88 @@ if(pending[m.id]){pending[m.id](m);delete pending[m.id]}
 if(conn&&conn.open)conn.send(m);
 }
 };
-}catch(e){log('backend error','err')}
+}catch(e){log('backend error: '+e,'err')}
 }
 
 function initPeer(id,host){
+if(typeof Peer==='undefined'){log('PeerJS not loaded','err');return}
+log('connecting...');
+try{
 peer=new Peer(id,{debug:0});
-peer.on('open',()=>{
-log('signaling online','ok');
+}catch(e){log('peer init error: '+e,'err');return}
+
+peer.on('open',function(){
+log('online','ok');
 setStatus('status',true,'online');
-document.getElementById('roomCode').textContent=room;
-document.getElementById('roomInfo').style.display='block';
+$('roomCode').textContent=room;
+$('roomInfo').style.display='block';
 if(!host){
 setStatus('peerStatus',false,'connecting');
 conn=peer.connect('relay-'+room+'-host',{reliable:true});
 setupConn();
 }
 });
-peer.on('connection',c=>{log('peer joined','ok');conn=c;setupConn()});
-peer.on('error',e=>{
+peer.on('connection',function(c){log('peer joined','ok');conn=c;setupConn()});
+peer.on('error',function(e){
+log('error: '+e.type,'err');
 if(e.type==='peer-unavailable')setStatus('peerStatus',false,'not found');
 else if(e.type==='unavailable-id')initPeer('relay-'+room+'-'+Math.random().toString(36).substr(2,4),false);
 });
 }
 
 function setupConn(){
-conn.on('open',()=>{
-log('peer connected','ok');
+conn.on('open',function(){
+log('connected','ok');
 setStatus('peerStatus',true,'connected');
-['msg','url'].forEach(id=>document.getElementById(id).disabled=false);
-['btnSend','btnGo'].forEach(id=>document.getElementById(id).disabled=false);
+$('msg').disabled=false;
+$('url').disabled=false;
+$('btnSend').disabled=false;
+$('btnGo').disabled=false;
 });
-conn.on('data',d=>{
-if(d.type==='chat')document.getElementById('chat').innerHTML+=`<div>${d.text}</div>`;
+conn.on('data',function(d){
+if(d.type==='chat')$('chat').innerHTML+='<div>'+d.text+'</div>';
 else if(d.type==='fetch_request'&&backend&&backend.readyState===1)backend.send(JSON.stringify(d));
 else if(d.type==='fetch_response'&&pending[d.id]){pending[d.id](d);delete pending[d.id]}
 });
-conn.on('close',()=>setStatus('peerStatus',false,'disconnected'));
+conn.on('close',function(){log('disconnected','err');setStatus('peerStatus',false,'disconnected')});
 }
 
 function fetchUrl(url){
-return new Promise(r=>{
-const id='f'+(fetchId++);
+return new Promise(function(r){
+var id='f'+(fetchId++);
 pending[id]=r;
-const msg={type:'fetch_request',id,url};
+var msg={type:'fetch_request',id:id,url:url};
 if(backend&&backend.readyState===1)backend.send(JSON.stringify(msg));
 else if(conn&&conn.open)conn.send(msg);
 else r({error:'no connection'});
-setTimeout(()=>{if(pending[id]){r({error:'timeout'});delete pending[id]}},30000);
+setTimeout(function(){if(pending[id]){r({error:'timeout'});delete pending[id]}},30000);
 });
 }
 
-async function browse(){
-const url=document.getElementById('url').value.trim();
+function browse(){
+var url=$('url').value.trim();
 if(!url)return;
-document.getElementById('content').textContent='Loading...';
-const r=await fetchUrl(url);
-document.getElementById('content').textContent=r.error?`Error: ${r.error}`:r.body||'(empty)';
+$('content').textContent='Loading...';
+fetchUrl(url).then(function(r){
+$('content').textContent=r.error?'Error: '+r.error:r.body||'(empty)';
+});
 }
 
-const gen=()=>Array(4).fill().map(()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]).join('');
+function gen(){return Array(4).fill().map(function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]}).join('')}
 
-document.getElementById('btnBackend').onclick=connectBackend;
-document.getElementById('btnNew').onclick=()=>{room=gen();document.getElementById('room').value=room;setStatus('peerStatus',false,'waiting');initPeer('relay-'+room+'-host',true)};
-document.getElementById('btnJoin').onclick=()=>{room=document.getElementById('room').value.trim().toUpperCase();if(room.length>=4)initPeer('relay-'+room+'-host',true)};
-document.getElementById('room').onkeypress=e=>{if(e.key==='Enter')document.getElementById('btnJoin').click()};
-document.getElementById('btnSend').onclick=()=>{const m=document.getElementById('msg').value.trim();if(m&&conn&&conn.open){conn.send({type:'chat',text:m});document.getElementById('chat').innerHTML+=`<div style="color:#888">you: ${m}</div>`;document.getElementById('msg').value=''}};
-document.getElementById('msg').onkeypress=e=>{if(e.key==='Enter')document.getElementById('btnSend').click()};
-document.getElementById('btnGo').onclick=browse;
-document.getElementById('url').onkeypress=e=>{if(e.key==='Enter')browse()};
+$('btnBackend').onclick=connectBackend;
+$('btnNew').onclick=function(){room=gen();$('room').value=room;setStatus('peerStatus',false,'waiting');initPeer('relay-'+room+'-host',true)};
+$('btnJoin').onclick=function(){room=$('room').value.trim().toUpperCase();if(room.length>=4){log('joining '+room);initPeer('relay-'+room+'-host',true)}else{log('enter 4 char code','err')}};
+$('room').onkeypress=function(e){if(e.key==='Enter')$('btnJoin').click()};
+$('btnSend').onclick=function(){var m=$('msg').value.trim();if(m&&conn&&conn.open){conn.send({type:'chat',text:m});$('chat').innerHTML+='<div style="color:#888">you: '+m+'</div>';$('msg').value=''}};
+$('msg').onkeypress=function(e){if(e.key==='Enter')$('btnSend').click()};
+$('btnGo').onclick=browse;
+$('url').onkeypress=function(e){if(e.key==='Enter')browse()};
 
-log('ready');
+setTimeout(function(){
+if(typeof Peer==='undefined'){log('PeerJS failed to load - CDN may be blocked','err')}else{log('ready')}
+},1500);
+})();
 </script>
 </body>
 </html>
