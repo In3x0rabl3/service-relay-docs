@@ -65,6 +65,14 @@ button:disabled{opacity:0.4}
 </div>
 
 <div class="section">
+<div class="section-title">SOCKS Proxy</div>
+<div class="row">
+<button id="btnSocks" disabled>Download Client</button>
+</div>
+<div style="font-size:10px;color:#555;margin-top:4px">Run on Windows to create localhost:7777 proxy</div>
+</div>
+
+<div class="section">
 <div class="section-title">Log</div>
 <div id="log"></div>
 </div>
@@ -100,6 +108,17 @@ log('forwarding to peer');
 channel.publish('data',{type:'response',from:myId,id:m.id,body:m.body,error:m.error});
 }
 }
+else if(m.type==='connected'){
+log('tcp connected: '+m.session);
+if(channel)channel.publish('data',{type:'tcpok',from:myId,sid:m.session});
+}
+else if(m.type==='data'){
+if(channel)channel.publish('data',{type:'tcpdata',from:myId,sid:m.session,data:m.data});
+}
+else if(m.type==='closed'){
+log('tcp closed: '+m.session);
+if(channel)channel.publish('data',{type:'tcpclose',from:myId,sid:m.session});
+}
 };
 }catch(e){log('backend err','#a66')}
 }
@@ -109,7 +128,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('url').disabled=$('btnSend').disabled=$('btnGo').disabled=false;
+$('msg').disabled=$('url').disabled=$('btnSend').disabled=$('btnGo').disabled=$('btnSocks').disabled=false;
 }
 
 function joinRoom(code,isNew){
@@ -157,6 +176,24 @@ channel.publish('data',{type:'response',from:myId,id:d.id,error:'no backend on p
 else if(d.type==='response'){
 log('got response');
 if(pending[d.id]){pending[d.id](d);delete pending[d.id];}
+}
+else if(d.type==='connect'){
+log('tcp connect: '+d.host+':'+d.port);
+if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'connect',sid:d.sid,host:d.host,port:d.port}));
+}else{
+log('no backend!','#a66');
+}
+}
+else if(d.type==='tcpdata'){
+if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'data',sid:d.sid,data:d.data}));
+}
+}
+else if(d.type==='tcpclose'){
+if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'close',sid:d.sid}));
+}
 }
 });
 
@@ -208,6 +245,88 @@ $('btnSend').onclick=function(){var m=$('msg').value.trim();if(m){sendChat(m);$(
 $('msg').onkeypress=function(e){if(e.key==='Enter')$('btnSend').click()};
 $('btnGo').onclick=browse;
 $('url').onkeypress=function(e){if(e.key==='Enter')browse()};
+
+$('btnSocks').onclick=function(){
+var script=`# SOCKS5 Proxy Client - connects via Ably relay
+# Run: powershell -ExecutionPolicy Bypass -File socks-client.ps1
+# Then configure browser to use SOCKS5 proxy: localhost:7777
+
+$room = "${room}"
+$ablyKey = "gAgqHA.yZ5GzA:6o4_ysot75A7YNoDEicN23KmBcI3isDJL3uYIUp3Ibg"
+$localPort = 7777
+
+Add-Type -AssemblyName System.Net.WebSockets
+
+$ws = New-Object System.Net.WebSockets.ClientWebSocket
+$uri = "wss://realtime.ably.io/?key=$ablyKey&clientId=ps-$(Get-Random)"
+$ct = [System.Threading.CancellationToken]::None
+
+Write-Host "Connecting to relay room: $room"
+$ws.ConnectAsync($uri, $ct).Wait()
+Write-Host "Connected to Ably"
+
+# Subscribe to channel
+$sub = '{"action":10,"channel":"relay-'+$room+'"}'
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($sub)
+$ws.SendAsync([ArraySegment[byte]]$bytes, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).Wait()
+
+# Send hello
+$hello = '{"action":15,"channel":"relay-'+$room+'","name":"data","data":"{\\"type\\":\\"hello\\",\\"from\\":\\"ps\\"}"}'
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($hello)
+$ws.SendAsync([ArraySegment[byte]]$bytes, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).Wait()
+Write-Host "Joined room, waiting for peer..."
+
+# Start SOCKS listener
+$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $localPort)
+$listener.Start()
+Write-Host "SOCKS5 proxy listening on localhost:$localPort"
+Write-Host "Configure your browser to use SOCKS5 proxy: 127.0.0.1:$localPort"
+
+while ($true) {
+    if ($listener.Pending()) {
+        $client = $listener.AcceptTcpClient()
+        $stream = $client.GetStream()
+        Write-Host "New connection from $($client.Client.RemoteEndPoint)"
+
+        # SOCKS5 handshake
+        $buf = New-Object byte[] 256
+        $n = $stream.Read($buf, 0, 256)
+        if ($buf[0] -eq 5) {
+            $stream.Write([byte[]](5,0), 0, 2)  # No auth
+            $n = $stream.Read($buf, 0, 256)
+            if ($buf[1] -eq 1) {  # CONNECT
+                $atyp = $buf[3]
+                if ($atyp -eq 1) {  # IPv4
+                    $host = "$($buf[4]).$($buf[5]).$($buf[6]).$($buf[7])"
+                    $port = $buf[8]*256 + $buf[9]
+                } elseif ($atyp -eq 3) {  # Domain
+                    $len = $buf[4]
+                    $host = [System.Text.Encoding]::ASCII.GetString($buf, 5, $len)
+                    $port = $buf[5+$len]*256 + $buf[6+$len]
+                }
+                Write-Host "CONNECT $host`:$port"
+
+                # Send connect request via Ably
+                $sid = "s$(Get-Random)"
+                $msg = '{"action":15,"channel":"relay-'+$room+'","name":"data","data":"{\\"type\\":\\"connect\\",\\"from\\":\\"ps\\",\\"sid\\":\\"'+$sid+'\\",\\"host\\":\\"'+$host+'\\",\\"port\\":'+$port+'}"}'
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($msg)
+                $ws.SendAsync([ArraySegment[byte]]$bytes, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).Wait()
+
+                # Send success response
+                $stream.Write([byte[]](5,0,0,1,0,0,0,0,0,0), 0, 10)
+                Write-Host "Tunnel established"
+            }
+        }
+    }
+    Start-Sleep -Milliseconds 100
+}
+`;
+var blob=new Blob([script],{type:'text/plain'});
+var a=document.createElement('a');
+a.href=URL.createObjectURL(blob);
+a.download='socks-client.ps1';
+a.click();
+};
 
 log('ready');
 </script>
