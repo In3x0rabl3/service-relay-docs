@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Relay Dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+.container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+h1 { font-size: 1.5rem; margin-bottom: 20px; color: #38bdf8; }
+.card { background: #1e293b; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
+.card h2 { font-size: 1rem; color: #94a3b8; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+.status { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 0.85rem; }
+.status.connected { background: #166534; color: #86efac; }
+.status.disconnected { background: #991b1b; color: #fca5a5; }
+.status.pending { background: #854d0e; color: #fde047; }
+input, button, textarea, select { padding: 8px 12px; border-radius: 4px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.9rem; }
+textarea { font-family: monospace; font-size: 0.75rem; resize: vertical; }
+button { background: #2563eb; border-color: #2563eb; cursor: pointer; }
+button:hover { background: #1d4ed8; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-green { background: #166534; border-color: #166534; }
+.btn-red { background: #991b1b; border-color: #991b1b; }
+.row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+.row input, .row textarea { flex: 1; }
+#log { background: #020617; border-radius: 4px; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; color: #94a3b8; }
+#log .info { color: #38bdf8; }
+#log .success { color: #4ade80; }
+#log .error { color: #f87171; }
+#chat { background: #020617; border-radius: 4px; padding: 10px; height: 120px; overflow-y: auto; margin-bottom: 10px; }
+.msg { margin-bottom: 5px; }
+.msg .from { color: #38bdf8; font-weight: bold; }
+.tabs { display: flex; gap: 5px; margin-bottom: 15px; }
+.tab { padding: 8px 16px; border-radius: 4px 4px 0 0; cursor: pointer; background: #334155; }
+.tab.active { background: #2563eb; }
+.panel { display: none; }
+.panel.active { display: block; }
+.code-box { background: #020617; border-radius: 4px; padding: 10px; font-family: monospace; font-size: 0.7rem; word-break: break-all; max-height: 150px; overflow-y: auto; cursor: pointer; }
+.code-box:hover { background: #0f172a; }
+.help { font-size: 0.8rem; color: #64748b; margin-top: 5px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+@media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Relay Dashboard</h1>
+
+<div class="card">
+<h2>Connection Status <span id="connStatus" class="status disconnected">Not Connected</span></h2>
+<div class="row">
+<span>Role:</span>
+<select id="role">
+<option value="offer">Initiator (Create Offer)</option>
+<option value="answer">Responder (Accept Offer)</option>
+</select>
+</div>
+</div>
+
+<div class="card">
+<h2>Signaling (Manual Exchange)</h2>
+<div class="tabs">
+<div class="tab active" data-tab="step1">1. Generate</div>
+<div class="tab" data-tab="step2">2. Exchange</div>
+<div class="tab" data-tab="step3">3. Connect</div>
+</div>
+
+<div id="step1" class="panel active">
+<p class="help">Step 1: Generate your offer/answer SDP</p>
+<div class="row">
+<button id="btnGenerate">Generate Offer</button>
+</div>
+<p class="help" style="margin-top:10px">Your SDP (click to copy):</p>
+<div id="localSdp" class="code-box" onclick="copyLocal()">Click "Generate" to create SDP...</div>
+</div>
+
+<div id="step2" class="panel">
+<p class="help">Step 2: Exchange SDPs with peer</p>
+<p class="help">Send your SDP to peer, then paste their SDP here:</p>
+<textarea id="remoteSdp" rows="6" placeholder="Paste remote SDP here..."></textarea>
+<div class="row" style="margin-top:10px">
+<button id="btnSetRemote">Set Remote SDP</button>
+</div>
+</div>
+
+<div id="step3" class="panel">
+<p class="help">Step 3: Exchange ICE candidates (if needed)</p>
+<p class="help">Your ICE candidates:</p>
+<div id="localIce" class="code-box" onclick="copyIce()">Gathering...</div>
+<p class="help" style="margin-top:10px">Remote ICE (paste if connection doesn't establish):</p>
+<textarea id="remoteIce" rows="3" placeholder="Paste remote ICE candidates JSON..."></textarea>
+<div class="row" style="margin-top:10px">
+<button id="btnAddIce">Add ICE Candidates</button>
+</div>
+</div>
+</div>
+
+<div class="grid">
+<div class="card">
+<h2>Chat</h2>
+<div id="chat"></div>
+<div class="row">
+<input type="text" id="chatInput" placeholder="Type message..." disabled>
+<button id="btnSend" disabled>Send</button>
+</div>
+</div>
+
+<div class="card">
+<h2>SOCKS Proxy</h2>
+<div class="row">
+<span>Target:</span>
+<input type="text" id="socksTarget" placeholder="host:port" style="flex:1">
+<button id="btnConnect" disabled>Connect</button>
+</div>
+<div class="row" style="margin-top:10px">
+<textarea id="socksData" rows="3" placeholder="Data to send (hex or text)..." disabled></textarea>
+</div>
+<div class="row">
+<button id="btnSendData" disabled>Send Data</button>
+<button id="btnDisconnect" class="btn-red" disabled>Disconnect</button>
+</div>
+</div>
+</div>
+
+<div class="card">
+<h2>Log</h2>
+<div id="log"></div>
+</div>
+</div>
+
+<script>
+let pc = null;
+let dc = null;
+let iceCandidates = [];
+let isInitiator = true;
+
+function log(msg, type='info') {
+    const el = document.getElementById('log');
+    const t = new Date().toLocaleTimeString();
+    el.innerHTML += `<div class="${type}">[${t}] ${msg}</div>`;
+    el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(connected, text) {
+    const el = document.getElementById('connStatus');
+    el.className = 'status ' + (connected ? 'connected' : connected === null ? 'pending' : 'disconnected');
+    el.textContent = text || (connected ? 'Connected' : 'Not Connected');
+}
+
+function addChat(from, text) {
+    const el = document.getElementById('chat');
+    el.innerHTML += `<div class="msg"><span class="from">${from}:</span> ${text}</div>`;
+    el.scrollTop = el.scrollHeight;
+}
+
+function showTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+    document.getElementById(name).classList.add('active');
+}
+
+function copyLocal() {
+    const text = document.getElementById('localSdp').textContent;
+    if (text && !text.startsWith('Click')) {
+        navigator.clipboard.writeText(text);
+        log('Copied local SDP to clipboard', 'success');
+    }
+}
+
+function copyIce() {
+    const text = document.getElementById('localIce').textContent;
+    if (text && text !== 'Gathering...') {
+        navigator.clipboard.writeText(text);
+        log('Copied ICE candidates to clipboard', 'success');
+    }
+}
+
+function createPC() {
+    pc = new RTCPeerConnection({
+        iceServers: [
+            {urls: 'stun:stun.l.google.com:19302'},
+            {urls: 'stun:stun1.l.google.com:19302'}
+        ]
+    });
+
+    iceCandidates = [];
+
+    pc.onicecandidate = (e) => {
+        if (e.candidate) {
+            iceCandidates.push(e.candidate);
+            document.getElementById('localIce').textContent = JSON.stringify(iceCandidates);
+        }
+    };
+
+    pc.onicegatheringstatechange = () => {
+        log(`ICE gathering: ${pc.iceGatheringState}`);
+        if (pc.iceGatheringState === 'complete') {
+            document.getElementById('localIce').textContent = JSON.stringify(iceCandidates);
+        }
+    };
+
+    pc.onconnectionstatechange = () => {
+        log(`Connection: ${pc.connectionState}`);
+        if (pc.connectionState === 'connected') {
+            setStatus(true, 'Connected');
+            enableControls(true);
+        } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+            setStatus(false, pc.connectionState);
+            enableControls(false);
+        }
+    };
+
+    pc.ondatachannel = (e) => {
+        log('Data channel received');
+        dc = e.channel;
+        setupDataChannel();
+    };
+}
+
+function setupDataChannel() {
+    dc.onopen = () => {
+        log('Data channel open', 'success');
+        enableControls(true);
+    };
+    dc.onclose = () => {
+        log('Data channel closed');
+        enableControls(false);
+    };
+    dc.onmessage = (e) => {
+        handleMessage(e.data);
+    };
+}
+
+function handleMessage(data) {
+    try {
+        const msg = JSON.parse(data);
+        switch(msg.type) {
+            case 'chat':
+                addChat(msg.from || 'Peer', msg.text);
+                break;
+            case 'data':
+                log(`Received ${msg.data.length} bytes for session ${msg.session}`);
+                break;
+            case 'connected':
+                log(`TCP session ${msg.session} connected`, 'success');
+                break;
+            case 'closed':
+                log(`TCP session ${msg.session} closed`);
+                break;
+            case 'error':
+                log(`Error: ${msg.msg}`, 'error');
+                break;
+        }
+    } catch {
+        log(`Raw data: ${data}`);
+    }
+}
+
+function enableControls(enabled) {
+    document.getElementById('chatInput').disabled = !enabled;
+    document.getElementById('btnSend').disabled = !enabled;
+    document.getElementById('btnConnect').disabled = !enabled;
+    document.getElementById('socksData').disabled = !enabled;
+    document.getElementById('btnSendData').disabled = !enabled;
+    document.getElementById('btnDisconnect').disabled = !enabled;
+}
+
+async function generate() {
+    isInitiator = document.getElementById('role').value === 'offer';
+    createPC();
+
+    if (isInitiator) {
+        dc = pc.createDataChannel('relay', {ordered: true});
+        setupDataChannel();
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        document.getElementById('localSdp').textContent = JSON.stringify(pc.localDescription);
+        document.getElementById('btnGenerate').textContent = 'Regenerate';
+        log('Offer generated - copy and send to peer');
+    } else {
+        document.getElementById('localSdp').textContent = 'Paste remote offer first, then click "Set Remote SDP"';
+        log('Ready to receive offer');
+    }
+    showTab('step2');
+}
+
+async function setRemote() {
+    const sdpText = document.getElementById('remoteSdp').value.trim();
+    if (!sdpText) {
+        log('Please paste remote SDP', 'error');
+        return;
+    }
+
+    try {
+        const sdp = JSON.parse(sdpText);
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        log('Remote SDP set');
+
+        if (!isInitiator) {
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            document.getElementById('localSdp').textContent = JSON.stringify(pc.localDescription);
+            log('Answer generated - copy and send to peer', 'success');
+        }
+
+        showTab('step3');
+        setStatus(null, 'Connecting...');
+    } catch (e) {
+        log('Invalid SDP: ' + e, 'error');
+    }
+}
+
+async function addIce() {
+    const iceText = document.getElementById('remoteIce').value.trim();
+    if (!iceText) return;
+
+    try {
+        const candidates = JSON.parse(iceText);
+        for (const c of candidates) {
+            await pc.addIceCandidate(new RTCIceCandidate(c));
+        }
+        log(`Added ${candidates.length} ICE candidates`);
+    } catch (e) {
+        log('Invalid ICE: ' + e, 'error');
+    }
+}
+
+function sendChat() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || !dc || dc.readyState !== 'open') return;
+
+    dc.send(JSON.stringify({type: 'chat', text: text}));
+    addChat('You', text);
+    input.value = '';
+}
+
+function connectSocks() {
+    const target = document.getElementById('socksTarget').value.trim();
+    if (!target || !dc || dc.readyState !== 'open') return;
+
+    const [host, port] = target.split(':');
+    const session = Math.random().toString(36).substr(2, 8);
+    dc.send(JSON.stringify({type: 'connect', host: host, port: parseInt(port), session: session}));
+    log(`Connecting to ${target}...`);
+}
+
+function sendSocksData() {
+    const data = document.getElementById('socksData').value.trim();
+    if (!data) return;
+    // Send raw data - implement as needed
+    log('Data send not implemented in demo');
+}
+
+// Event listeners
+document.querySelectorAll('.tab').forEach(t => {
+    t.onclick = () => showTab(t.dataset.tab);
+});
+
+document.getElementById('btnGenerate').onclick = generate;
+document.getElementById('btnSetRemote').onclick = setRemote;
+document.getElementById('btnAddIce').onclick = addIce;
+document.getElementById('btnSend').onclick = sendChat;
+document.getElementById('chatInput').onkeypress = (e) => { if (e.key === 'Enter') sendChat(); };
+document.getElementById('btnConnect').onclick = connectSocks;
+document.getElementById('btnSendData').onclick = sendSocksData;
+
+document.getElementById('role').onchange = () => {
+    document.getElementById('btnGenerate').textContent =
+        document.getElementById('role').value === 'offer' ? 'Generate Offer' : 'Prepare for Offer';
+};
+
+log('Ready - select role and click Generate');
+</script>
+</body>
+</html>
