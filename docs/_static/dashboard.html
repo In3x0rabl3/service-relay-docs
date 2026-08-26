@@ -135,7 +135,7 @@ else if(channel&&peerId){
 // Ably 64KB limit - truncate if needed
 var body=m.body||'';
 if(body.length>50000)body=body.substring(0,50000)+'<!--truncated-->';
-channel.publish('data',{type:'response',from:myId,id:m.id,body:body,error:m.error});
+channel.publish('data',{type:'response',from:myId,id:m.id,status:m.status,headers:m.headers,body:body,error:m.error});
 }
 }
 };
