@@ -158,18 +158,22 @@ pc.addIceCandidate(data.candidate).catch(function(){});
 }
 
 function createPC(initiator){
+// STUN only - TURN requires paid credentials
 pc=new RTCPeerConnection({iceServers:[
 {urls:'stun:stun.l.google.com:19302'},
 {urls:'stun:stun1.l.google.com:19302'},
-{urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
-{urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
-{urls:'turns:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}
-]});
+{urls:'stun:stun2.l.google.com:19302'},
+{urls:'stun:stun3.l.google.com:19302'},
+{urls:'stun:stun4.l.google.com:19302'}
+],iceCandidatePoolSize:10});
 pc.onicecandidate=function(e){
-if(e.candidate&&channel){
-channel.publish('signal', {type:'ice',from:myId,candidate:e.candidate});
+if(e.candidate){
+var c=e.candidate;
+log('ice: '+c.type+' '+(c.protocol||'')+(c.address?' '+c.address.split('.').slice(-1):''));
+if(channel)channel.publish('signal',{type:'ice',from:myId,candidate:c});
 }
 };
+pc.onicecandidateerror=function(e){log('ice err: '+e.errorCode,'#a66')};
 pc.oniceconnectionstatechange=function(){log('ice: '+pc.iceConnectionState)};
 pc.onconnectionstatechange=function(){
 log('rtc: '+pc.connectionState);
