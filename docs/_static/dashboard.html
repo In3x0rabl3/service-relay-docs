@@ -17,11 +17,11 @@ input:focus{outline:none;border-color:#555}
 button{cursor:pointer;background:#333}
 button:hover{background:#444}
 button:disabled{opacity:0.4;cursor:default}
-.status{font-size:11px;padding:3px 8px;border-radius:2px;background:#333}
+.status{font-size:10px;padding:2px 8px;border-radius:10px;background:#333;display:inline-block}
 .status.on{background:#1a3a1a;color:#6a6}
 .status.off{background:#3a1a1a;color:#a66}
 .room-code{font-family:monospace;font-size:24px;letter-spacing:6px;color:#fff;margin:12px 0}
-#chat{flex:1;background:#0d0d0d;border:1px solid #333;border-radius:3px;padding:12px;overflow-y:auto;font-size:13px;line-height:1.6}
+#chat{flex:1;background:#0d0d0d;border:1px solid #333;border-radius:3px;padding:12px;overflow-y:auto;font-size:13px;line-height:1.6;margin:15px;margin-bottom:0}
 #chat .msg{margin-bottom:8px}
 #chat .msg.you{color:#888}
 #chat .msg.peer{color:#6a6}
@@ -66,9 +66,9 @@ button:disabled{opacity:0.4;cursor:default}
 <div style="font-size:10px;color:#555;margin-top:6px">Creates localhost:7777 SOCKS5 proxy</div>
 </div>
 
-<div class="section" style="flex:1;display:flex;flex-direction:column;min-height:0">
+<div class="section">
 <div class="section-title">Log</div>
-<div id="log" style="flex:1;background:#0d0d0d;border:1px solid #333;border-radius:3px;padding:8px;overflow-y:auto;font-family:monospace;font-size:10px;color:#666"></div>
+<div id="log" style="height:80px;background:#0d0d0d;border:1px solid #333;border-radius:3px;padding:8px;overflow-y:auto;font-family:monospace;font-size:10px;color:#555"></div>
 </div>
 </div>
 
