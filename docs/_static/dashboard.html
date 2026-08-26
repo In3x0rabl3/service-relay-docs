@@ -64,7 +64,10 @@ button:disabled{opacity:0.4;cursor:default}
 <div class="section">
 <div class="section-title">SOCKS Proxy</div>
 <button id="btnSocks" disabled style="width:100%">Download Windows Client</button>
-<div style="font-size:10px;color:#555;margin-top:6px">Creates localhost:7777 SOCKS5 proxy</div>
+<div class="row" style="margin-top:8px;align-items:center">
+<span class="label">Bridge:</span> <span id="socksStatus" class="status off">offline</span>
+</div>
+<div style="font-size:10px;color:#555;margin-top:4px">localhost:7777 on Windows</div>
 </div>
 
 <div class="section">
@@ -144,10 +147,16 @@ channel.subscribe(function(msg){
 var d=msg.data;
 if(!d||d.from===myId)return;
 
-if(d.type==='hello'&&!connected){
+if(d.type==='hello'){
+if(d.from==='socks'){
+log('SOCKS bridge connected','#6a6');
+setS('socksStatus',1,'running');
+channel.publish('data',{type:'hello',from:myId});
+}else if(!connected){
 peerId=d.from;
 setConnected();
 if(isNew)channel.publish('data',{type:'hello',from:myId});
+}
 }
 else if(d.type==='chat'){
 $('chat').innerHTML+='<div class="msg peer">'+d.text+'</div>';
