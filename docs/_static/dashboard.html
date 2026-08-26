@@ -2,512 +2,162 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Relay Dashboard</title>
+<title>Relay</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
-.container { max-width: 1000px; margin: 0 auto; padding: 20px; }
-h1 { font-size: 1.5rem; margin-bottom: 20px; color: #38bdf8; }
-.card { background: #1e293b; border-radius: 8px; padding: 20px; margin-bottom: 15px; }
-.card h2 { font-size: 1rem; color: #94a3b8; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
-.status { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 0.85rem; }
-.status.connected { background: #166534; color: #86efac; }
-.status.disconnected { background: #991b1b; color: #fca5a5; }
-.status.pending { background: #854d0e; color: #fde047; }
-input, button, textarea, select { padding: 8px 12px; border-radius: 4px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.9rem; }
-textarea { font-family: monospace; font-size: 0.75rem; resize: vertical; }
-button { background: #2563eb; border-color: #2563eb; cursor: pointer; }
-button:hover { background: #1d4ed8; }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-green { background: #166534; border-color: #166534; }
-.btn-red { background: #991b1b; border-color: #991b1b; }
-.row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
-.row input, .row textarea { flex: 1; min-width: 150px; }
-#log { background: #020617; border-radius: 4px; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; color: #94a3b8; }
-#log .info { color: #38bdf8; }
-#log .success { color: #4ade80; }
-#log .error { color: #f87171; }
-#chat { background: #020617; border-radius: 4px; padding: 10px; height: 120px; overflow-y: auto; margin-bottom: 10px; }
-.msg { margin-bottom: 5px; }
-.msg .from { color: #38bdf8; font-weight: bold; }
-.tabs { display: flex; gap: 5px; margin-bottom: 15px; }
-.tab { padding: 8px 16px; border-radius: 4px 4px 0 0; cursor: pointer; background: #334155; }
-.tab.active { background: #2563eb; }
-.panel { display: none; }
-.panel.active { display: block; }
-.code-box { background: #020617; border-radius: 4px; padding: 10px; font-family: monospace; font-size: 0.7rem; word-break: break-all; max-height: 150px; overflow-y: auto; cursor: pointer; user-select: all; }
-.code-box:hover { background: #0f172a; }
-.help { font-size: 0.8rem; color: #64748b; margin-top: 5px; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-@media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
-.backend-status { font-size: 0.8rem; margin-left: auto; }
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:20px}
+.card{background:#1e293b;border-radius:8px;padding:15px;margin-bottom:15px;max-width:600px}
+h2{font-size:1rem;color:#94a3b8;margin-bottom:10px}
+.status{display:inline-block;padding:4px 12px;border-radius:4px;font-size:0.85rem}
+.on{background:#166534;color:#86efac}
+.off{background:#991b1b;color:#fca5a5}
+.wait{background:#854d0e;color:#fde047}
+input,button{padding:8px 12px;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:0.9rem}
+button{background:#2563eb;border-color:#2563eb;cursor:pointer}
+.row{display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+#log{background:#020617;border-radius:4px;padding:10px;height:150px;overflow-y:auto;font-family:monospace;font-size:0.8rem}
+.i{color:#38bdf8}.s{color:#4ade80}.e{color:#f87171}
+#chat{background:#020617;padding:10px;height:100px;overflow-y:auto;margin-bottom:10px;font-size:0.9rem}
+.room-code{font-size:2.5rem;font-family:monospace;letter-spacing:0.3em;color:#38bdf8;font-weight:bold}
+.small{font-size:0.8rem;color:#64748b}
 </style>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
-<div class="container">
-<h1>Relay Dashboard</h1>
-
 <div class="card">
-<h2>Connection Status <span id="connStatus" class="status disconnected">Not Connected</span></h2>
+<h2>Connection <span id="status" class="status off">Offline</span></h2>
 <div class="row">
-<span>Role:</span>
-<select id="role">
-<option value="offer">Initiator (Create Offer)</option>
-<option value="answer">Responder (Accept Offer)</option>
-</select>
-<span class="backend-status">Backend: <span id="backendStatus" class="status disconnected">Off</span></span>
+<input id="room" placeholder="4-char code" maxlength="4" style="width:120px;text-transform:uppercase;font-size:1.2rem;text-align:center">
+<button id="btnJoin">Join</button>
+<button id="btnNew">New Room</button>
 </div>
-<div class="row">
-<span>Backend URL:</span>
-<input type="text" id="backendUrl" value="ws://127.0.0.1:9999" style="width:200px">
-<button id="btnBackend">Connect Backend</button>
+<div id="roomDisplay" style="display:none;margin-top:15px;text-align:center">
+<div class="small">YOUR ROOM CODE</div>
+<div id="roomCode" class="room-code"></div>
+<div class="small" style="margin-top:10px">Peer: <span id="peerStatus" class="status off">Waiting...</span></div>
 </div>
 </div>
 
-<div class="card">
-<h2>Signaling (Manual Exchange)</h2>
-<div class="tabs">
-<div class="tab active" data-tab="step1">1. Generate</div>
-<div class="tab" data-tab="step2">2. Exchange</div>
-<div class="tab" data-tab="step3">3. Connect</div>
-</div>
-
-<div id="step1" class="panel active">
-<p class="help">Step 1: Generate your offer/answer SDP</p>
-<div class="row">
-<button id="btnGenerate">Generate Offer</button>
-</div>
-<p class="help" style="margin-top:10px">Your SDP (click to copy):</p>
-<div id="localSdp" class="code-box" onclick="copyLocal()">Click "Generate" to create SDP...</div>
-</div>
-
-<div id="step2" class="panel">
-<p class="help">Step 2: Exchange SDPs with peer</p>
-<p class="help">Send your SDP to peer, then paste their SDP here:</p>
-<textarea id="remoteSdp" rows="6" placeholder="Paste remote SDP here..."></textarea>
-<div class="row" style="margin-top:10px">
-<button id="btnSetRemote">Set Remote SDP</button>
-</div>
-</div>
-
-<div id="step3" class="panel">
-<p class="help">Step 3: Exchange ICE candidates (usually auto-gathered in SDP)</p>
-<p class="help">Your ICE candidates:</p>
-<div id="localIce" class="code-box" onclick="copyIce()">Gathering...</div>
-<p class="help" style="margin-top:10px">Remote ICE (paste if connection doesn't establish):</p>
-<textarea id="remoteIce" rows="3" placeholder="Paste remote ICE candidates JSON..."></textarea>
-<div class="row" style="margin-top:10px">
-<button id="btnAddIce">Add ICE Candidates</button>
-</div>
-</div>
-</div>
-
-<div class="grid">
 <div class="card">
 <h2>Chat</h2>
 <div id="chat"></div>
 <div class="row">
-<input type="text" id="chatInput" placeholder="Type message..." disabled>
+<input id="msg" placeholder="Type message..." style="flex:1" disabled>
 <button id="btnSend" disabled>Send</button>
 </div>
 </div>
 
 <div class="card">
-<h2>TCP Proxy</h2>
+<h2>TCP Proxy (via peer with backend)</h2>
 <div class="row">
-<input type="text" id="proxyTarget" placeholder="host:port" style="flex:1">
-<button id="btnProxyConnect" disabled>Connect</button>
-</div>
-<div class="row">
-<textarea id="proxyData" rows="2" placeholder="Data to send..." disabled></textarea>
+<input id="target" placeholder="host:port" style="flex:1">
+<button id="btnConn" disabled>Connect</button>
 </div>
 <div class="row">
-<button id="btnProxySend" disabled>Send</button>
-<button id="btnProxyClose" class="btn-red" disabled>Close</button>
+<input id="data" placeholder="Data..." style="flex:1" disabled>
+<button id="btnData" disabled>Send</button>
 </div>
-<div id="proxyResponse" style="margin-top:10px; font-family:monospace; font-size:0.8rem; max-height:100px; overflow-y:auto;"></div>
-</div>
+<div id="resp" style="background:#020617;padding:10px;margin-top:10px;font-family:monospace;font-size:0.75rem;max-height:80px;overflow-y:auto;white-space:pre-wrap"></div>
 </div>
 
 <div class="card">
 <h2>Log</h2>
 <div id="log"></div>
 </div>
-</div>
 
 <script>
-let pc = null;
-let dc = null;
-let backend = null;
-let iceCandidates = [];
-let isInitiator = true;
-let currentSession = null;
+let peer,conn,room;
+const log=(m,t='i')=>{const e=document.getElementById('log');e.innerHTML+=`<div class="${t}">${new Date().toLocaleTimeString()} ${m}</div>`;e.scrollTop=e.scrollHeight};
+const setStatus=(id,s,t)=>{const e=document.getElementById(id);e.className='status '+(s?'on':s===null?'wait':'off');if(t)e.textContent=t};
+const genCode=()=>Array(4).fill().map(()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]).join('');
 
-function log(msg, type='info') {
-    const el = document.getElementById('log');
-    const t = new Date().toLocaleTimeString();
-    el.innerHTML += `<div class="${type}">[${t}] ${msg}</div>`;
-    el.scrollTop = el.scrollHeight;
+function initPeer(id, isHost){
+peer=new Peer(id,{debug:0});
+peer.on('open',pid=>{
+log('Connected as: '+pid,'s');
+setStatus('status',true,'Online');
+document.getElementById('roomCode').textContent=room;
+document.getElementById('roomDisplay').style.display='block';
+if(!isHost){
+// Join existing room - connect to host
+const hostId='relay-'+room+'-host';
+log('Connecting to host...');
+setStatus('peerStatus',null,'Connecting...');
+conn=peer.connect(hostId,{reliable:true});
+setupConn();
 }
-
-function setStatus(id, connected, text) {
-    const el = document.getElementById(id);
-    el.className = 'status ' + (connected ? 'connected' : connected === null ? 'pending' : 'disconnected');
-    el.textContent = text || (connected ? 'Connected' : 'Disconnected');
-}
-
-function addChat(from, text) {
-    const el = document.getElementById('chat');
-    el.innerHTML += `<div class="msg"><span class="from">${from}:</span> ${text}</div>`;
-    el.scrollTop = el.scrollHeight;
-}
-
-function showTab(name) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    document.querySelector(`[data-tab="${name}"]`).classList.add('active');
-    document.getElementById(name).classList.add('active');
-}
-
-function copyLocal() {
-    const text = document.getElementById('localSdp').textContent;
-    if (text && !text.startsWith('Click')) {
-        navigator.clipboard.writeText(text);
-        log('Copied local SDP to clipboard', 'success');
-    }
-}
-
-function copyIce() {
-    const text = document.getElementById('localIce').textContent;
-    if (text && text !== 'Gathering...') {
-        navigator.clipboard.writeText(text);
-        log('Copied ICE candidates to clipboard', 'success');
-    }
-}
-
-// Backend WebSocket connection for TCP proxying
-function connectBackend() {
-    const url = document.getElementById('backendUrl').value;
-    try {
-        backend = new WebSocket(url);
-        backend.onopen = () => {
-            log('Backend connected', 'success');
-            setStatus('backendStatus', true, 'On');
-        };
-        backend.onclose = () => {
-            log('Backend disconnected');
-            setStatus('backendStatus', false, 'Off');
-            backend = null;
-        };
-        backend.onmessage = (e) => {
-            const msg = JSON.parse(e.data);
-            handleBackendMessage(msg);
-        };
-        backend.onerror = () => {
-            log('Backend connection failed', 'error');
-        };
-    } catch (e) {
-        log('Backend error: ' + e, 'error');
-    }
-}
-
-function handleBackendMessage(msg) {
-    switch(msg.type) {
-        case 'connected':
-            log(`Session ${msg.session} connected via backend`, 'success');
-            currentSession = msg.session;
-            document.getElementById('btnProxySend').disabled = false;
-            document.getElementById('btnProxyClose').disabled = false;
-            // Forward to peer
-            if (dc && dc.readyState === 'open') {
-                dc.send(JSON.stringify(msg));
-            }
-            break;
-        case 'data':
-            // Display and forward
-            const decoded = atob(msg.data);
-            document.getElementById('proxyResponse').textContent += decoded;
-            if (dc && dc.readyState === 'open') {
-                dc.send(JSON.stringify(msg));
-            }
-            break;
-        case 'closed':
-            log(`Session ${msg.session} closed`);
-            currentSession = null;
-            if (dc && dc.readyState === 'open') {
-                dc.send(JSON.stringify(msg));
-            }
-            break;
-        case 'error':
-            log(`Backend error: ${msg.msg}`, 'error');
-            break;
-    }
-}
-
-function createPC() {
-    pc = new RTCPeerConnection({
-        iceServers: [
-            {urls: 'stun:stun.l.google.com:19302'},
-            {urls: 'stun:stun1.l.google.com:19302'}
-        ]
-    });
-
-    iceCandidates = [];
-
-    pc.onicecandidate = (e) => {
-        if (e.candidate) {
-            iceCandidates.push(e.candidate);
-            document.getElementById('localIce').textContent = JSON.stringify(iceCandidates);
-        }
-    };
-
-    pc.onicegatheringstatechange = () => {
-        log(`ICE gathering: ${pc.iceGatheringState}`);
-    };
-
-    pc.onconnectionstatechange = () => {
-        log(`Connection: ${pc.connectionState}`);
-        if (pc.connectionState === 'connected') {
-            setStatus('connStatus', true, 'Connected');
-            enableControls(true);
-        } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-            setStatus('connStatus', false, pc.connectionState);
-            enableControls(false);
-        }
-    };
-
-    pc.ondatachannel = (e) => {
-        log('Data channel received');
-        dc = e.channel;
-        setupDataChannel();
-    };
-}
-
-function setupDataChannel() {
-    dc.onopen = () => {
-        log('Data channel open', 'success');
-        enableControls(true);
-    };
-    dc.onclose = () => {
-        log('Data channel closed');
-        enableControls(false);
-    };
-    dc.onmessage = (e) => {
-        handlePeerMessage(e.data);
-    };
-}
-
-function handlePeerMessage(data) {
-    try {
-        const msg = JSON.parse(data);
-        switch(msg.type) {
-            case 'chat':
-                addChat(msg.from || 'Peer', msg.text);
-                break;
-            case 'connect':
-                // Peer wants to connect - forward to backend
-                if (backend && backend.readyState === WebSocket.OPEN) {
-                    backend.send(JSON.stringify(msg));
-                    log(`Proxying connection to ${msg.host}:${msg.port}`);
-                } else {
-                    log('No backend connected for proxying', 'error');
-                }
-                break;
-            case 'data':
-                // Peer sending data - forward to backend
-                if (backend && backend.readyState === WebSocket.OPEN) {
-                    backend.send(JSON.stringify(msg));
-                }
-                // Also display
-                if (msg.data) {
-                    const decoded = atob(msg.data);
-                    document.getElementById('proxyResponse').textContent += decoded;
-                }
-                break;
-            case 'close':
-                if (backend && backend.readyState === WebSocket.OPEN) {
-                    backend.send(JSON.stringify(msg));
-                }
-                break;
-            case 'connected':
-                log(`Remote session ${msg.session} connected`, 'success');
-                currentSession = msg.session;
-                document.getElementById('btnProxySend').disabled = false;
-                document.getElementById('btnProxyClose').disabled = false;
-                break;
-            case 'closed':
-                log(`Remote session closed`);
-                currentSession = null;
-                break;
-            case 'error':
-                log(`Remote error: ${msg.msg}`, 'error');
-                break;
-        }
-    } catch {
-        log(`Raw: ${data}`);
-    }
-}
-
-function enableControls(enabled) {
-    document.getElementById('chatInput').disabled = !enabled;
-    document.getElementById('btnSend').disabled = !enabled;
-    document.getElementById('btnProxyConnect').disabled = !enabled;
-    document.getElementById('proxyData').disabled = !enabled;
-}
-
-async function generate() {
-    isInitiator = document.getElementById('role').value === 'offer';
-    createPC();
-
-    if (isInitiator) {
-        dc = pc.createDataChannel('relay', {ordered: true});
-        setupDataChannel();
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        document.getElementById('localSdp').textContent = JSON.stringify(pc.localDescription);
-        document.getElementById('btnGenerate').textContent = 'Regenerate';
-        log('Offer generated - copy and send to peer');
-    } else {
-        document.getElementById('localSdp').textContent = 'Paste remote offer first in Step 2';
-        log('Ready to receive offer - go to Step 2');
-    }
-    showTab('step2');
-}
-
-async function setRemote() {
-    const sdpText = document.getElementById('remoteSdp').value.trim();
-    if (!sdpText) {
-        log('Please paste remote SDP', 'error');
-        return;
-    }
-
-    try {
-        const sdp = JSON.parse(sdpText);
-
-        if (!pc) {
-            createPC();
-        }
-
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-        log('Remote SDP set');
-
-        if (!isInitiator) {
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            document.getElementById('localSdp').textContent = JSON.stringify(pc.localDescription);
-            log('Answer generated - copy and send to peer', 'success');
-        }
-
-        showTab('step3');
-        setStatus('connStatus', null, 'Connecting...');
-    } catch (e) {
-        log('Invalid SDP: ' + e, 'error');
-    }
-}
-
-async function addIce() {
-    const iceText = document.getElementById('remoteIce').value.trim();
-    if (!iceText) return;
-
-    try {
-        const candidates = JSON.parse(iceText);
-        for (const c of candidates) {
-            await pc.addIceCandidate(new RTCIceCandidate(c));
-        }
-        log(`Added ${candidates.length} ICE candidates`);
-    } catch (e) {
-        log('Invalid ICE: ' + e, 'error');
-    }
-}
-
-function sendChat() {
-    const input = document.getElementById('chatInput');
-    const text = input.value.trim();
-    if (!text || !dc || dc.readyState !== 'open') return;
-
-    dc.send(JSON.stringify({type: 'chat', from: 'Me', text: text}));
-    addChat('You', text);
-    input.value = '';
-}
-
-function proxyConnect() {
-    const target = document.getElementById('proxyTarget').value.trim();
-    if (!target) return;
-
-    const [host, port] = target.split(':');
-    const session = Math.random().toString(36).substr(2, 8);
-    currentSession = session;
-
-    const msg = {type: 'connect', host: host, port: parseInt(port) || 80, session: session};
-
-    // If we have backend, use it directly
-    if (backend && backend.readyState === WebSocket.OPEN) {
-        backend.send(JSON.stringify(msg));
-        log(`Connecting to ${target} via backend...`);
-    }
-    // Otherwise send to peer
-    else if (dc && dc.readyState === 'open') {
-        dc.send(JSON.stringify(msg));
-        log(`Requesting peer to connect to ${target}...`);
-    } else {
-        log('No connection available', 'error');
-    }
-
-    document.getElementById('proxyResponse').textContent = '';
-}
-
-function proxySend() {
-    const data = document.getElementById('proxyData').value;
-    if (!data || !currentSession) return;
-
-    const msg = {type: 'data', session: currentSession, data: btoa(data)};
-
-    if (backend && backend.readyState === WebSocket.OPEN) {
-        backend.send(JSON.stringify(msg));
-    } else if (dc && dc.readyState === 'open') {
-        dc.send(JSON.stringify(msg));
-    }
-    log(`Sent ${data.length} bytes`);
-}
-
-function proxyClose() {
-    if (!currentSession) return;
-
-    const msg = {type: 'close', session: currentSession};
-
-    if (backend && backend.readyState === WebSocket.OPEN) {
-        backend.send(JSON.stringify(msg));
-    } else if (dc && dc.readyState === 'open') {
-        dc.send(JSON.stringify(msg));
-    }
-    currentSession = null;
-    document.getElementById('btnProxySend').disabled = true;
-    document.getElementById('btnProxyClose').disabled = true;
-}
-
-// Event listeners
-document.querySelectorAll('.tab').forEach(t => {
-    t.onclick = () => showTab(t.dataset.tab);
 });
+peer.on('connection',c=>{
+log('Peer connected!','s');
+conn=c;
+setupConn();
+});
+peer.on('error',e=>{
+if(e.type==='peer-unavailable'){log('Room not found or host offline','e');setStatus('peerStatus',false,'Not found')}
+else if(e.type==='unavailable-id'){log('Room already exists, joining...','i');initPeer('relay-'+room+'-guest',false)}
+else{log('Error: '+e.type,'e')}
+});
+}
 
-document.getElementById('btnBackend').onclick = connectBackend;
-document.getElementById('btnGenerate').onclick = generate;
-document.getElementById('btnSetRemote').onclick = setRemote;
-document.getElementById('btnAddIce').onclick = addIce;
-document.getElementById('btnSend').onclick = sendChat;
-document.getElementById('chatInput').onkeypress = (e) => { if (e.key === 'Enter') sendChat(); };
-document.getElementById('btnProxyConnect').onclick = proxyConnect;
-document.getElementById('btnProxySend').onclick = proxySend;
-document.getElementById('btnProxyClose').onclick = proxyClose;
+function setupConn(){
+conn.on('open',()=>{
+log('Channel open','s');
+setStatus('peerStatus',true,'Connected');
+document.getElementById('msg').disabled=false;
+document.getElementById('btnSend').disabled=false;
+document.getElementById('btnConn').disabled=false;
+});
+conn.on('data',d=>{
+if(d.type==='chat')document.getElementById('chat').innerHTML+=`<div><b>Peer:</b> ${d.text}</div>`;
+else if(d.type==='tcp_ok'){log('TCP connected','s');document.getElementById('btnData').disabled=false}
+else if(d.type==='tcp_data')document.getElementById('resp').textContent+=atob(d.data);
+else if(d.type==='tcp_close')log('TCP closed');
+else if(d.type==='tcp_err')log('TCP error: '+d.msg,'e');
+});
+conn.on('close',()=>{log('Peer disconnected','e');setStatus('peerStatus',false,'Disconnected')});
+}
 
-document.getElementById('role').onchange = () => {
-    document.getElementById('btnGenerate').textContent =
-        document.getElementById('role').value === 'offer' ? 'Generate Offer' : 'Prepare for Offer';
+function createRoom(){
+room=genCode();
+document.getElementById('room').value=room;
+log('Creating room '+room+'...');
+setStatus('peerStatus',null,'Waiting for peer...');
+initPeer('relay-'+room+'-host',true);
+}
+
+function joinRoom(){
+room=document.getElementById('room').value.trim().toUpperCase();
+if(room.length<4){log('Enter 4-char code','e');return}
+log('Joining room '+room+'...');
+initPeer('relay-'+room+'-host',true);
+}
+
+document.getElementById('btnNew').onclick=createRoom;
+document.getElementById('btnJoin').onclick=joinRoom;
+document.getElementById('room').onkeypress=e=>{if(e.key==='Enter')joinRoom()};
+document.getElementById('btnSend').onclick=()=>{
+const m=document.getElementById('msg').value.trim();
+if(m&&conn&&conn.open){
+conn.send({type:'chat',text:m});
+document.getElementById('chat').innerHTML+=`<div><b>You:</b> ${m}</div>`;
+document.getElementById('msg').value='';
+}
+};
+document.getElementById('msg').onkeypress=e=>{if(e.key==='Enter')document.getElementById('btnSend').click()};
+document.getElementById('btnConn').onclick=()=>{
+const t=document.getElementById('target').value.trim();if(!t)return;
+const[h,p]=t.split(':');const s=Math.random().toString(36).substr(2,6);
+document.getElementById('resp').textContent='';
+document.getElementById('data').dataset.session=s;
+document.getElementById('data').disabled=false;
+if(conn&&conn.open)conn.send({type:'tcp_connect',host:h,port:parseInt(p)||80,session:s});
+};
+document.getElementById('btnData').onclick=()=>{
+const d=document.getElementById('data').value;const s=document.getElementById('data').dataset.session;
+if(d&&s&&conn&&conn.open)conn.send({type:'tcp_send',session:s,data:btoa(d)});
 };
 
-log('Ready - select role and click Generate');
-log('On Ubuntu-VM: also click "Connect Backend" for TCP proxying');
+log('Click "New Room" or enter code and "Join"');
 </script>
 </body>
 </html>
