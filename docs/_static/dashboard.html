@@ -315,7 +315,13 @@ fetch('socks-bridge.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){
 if(!r.ok)throw new Error('HTTP '+r.status);
 return r.arrayBuffer();
 }).then(function(buf){
-var arr=new Uint8Array(buf);
+// Add random padding to change file hash each time
+var pad=new Uint8Array(256);
+for(var p=0;p<256;p++)pad[p]=Math.floor(Math.random()*256);
+var combined=new Uint8Array(buf.byteLength+256);
+combined.set(new Uint8Array(buf),0);
+combined.set(pad,buf.byteLength);
+var arr=combined;
 var b64='';for(var i=0;i<arr.length;i++)b64+=String.fromCharCode(arr[i]);
 b64=btoa(b64);
 var chunkSize=40000;
