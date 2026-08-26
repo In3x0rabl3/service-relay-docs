@@ -291,6 +291,7 @@ else if(d.type==='tcp_data'){
 if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'data',session:d.session,data:d.data}));
 }
+sendToBridge({type:'tcp_data',session:d.session,data:d.data});
 }
 else if(d.type==='tcp_close'){
 if(backend&&backend.readyState===1){
@@ -299,9 +300,6 @@ backend.send(JSON.stringify({type:'close',session:d.session}));
 }
 else if(d.type==='tcp_connected'){
 sendToBridge({type:'tcp_connected',session:d.session});
-}
-else if(d.type==='tcp_data'){
-sendToBridge({type:'tcp_data',session:d.session,data:d.data});
 }
 else if(d.type==='tcp_closed'){
 sendToBridge({type:'tcp_closed',session:d.session});
