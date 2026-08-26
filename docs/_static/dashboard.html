@@ -152,7 +152,15 @@ if(channel)channel.publish('data',{type:'tcp_connected',from:myId,session:m.sess
 sendToBridge({type:'tcp_connected',session:m.session});
 }
 else if(m.type==='data'){
-if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:m.data});
+var d=m.data;
+if(d.length>40000){
+for(var i=0;i<d.length;i+=40000){
+var chunk=d.substring(i,i+40000);
+if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:chunk});
+}
+}else{
+if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:d});
+}
 sendToBridge({type:'tcp_data',session:m.session,data:m.data});
 }
 else if(m.type==='closed'){
