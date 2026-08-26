@@ -63,7 +63,7 @@ button:disabled{opacity:0.4;cursor:default}
 
 <div class="section">
 <div class="section-title">SOCKS Proxy</div>
-<button id="btnSocks" disabled style="width:100%">Download Windows Client</button>
+<a id="btnSocks" href="socks-bridge.exe" download style="display:block;text-align:center;padding:8px;background:#333;color:#ccc;border-radius:3px;text-decoration:none;font-size:12px;pointer-events:none;opacity:0.4">Download socks-bridge.exe</a>
 <div class="row" style="margin-top:8px;align-items:center">
 <span class="label">Bridge:</span> <span id="socksStatus" class="status off">offline</span>
 </div>
@@ -79,6 +79,8 @@ button:disabled{opacity:0.4;cursor:default}
 <div class="main">
 <div id="chat"></div>
 <div class="chat-input">
+<input type="file" id="fileInput" style="display:none">
+<button id="btnFile" disabled title="Send file">📎</button>
 <input id="msg" placeholder="Type a message..." disabled>
 <button id="btnSend" disabled>Send</button>
 </div>
@@ -125,7 +127,8 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnSocks').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=false;
+$('btnSocks').style.pointerEvents='auto';$('btnSocks').style.opacity='1';
 $('msg').focus();
 }
 
@@ -169,6 +172,11 @@ else if(d.type==='chat'){
 $('chat').innerHTML+='<div class="msg peer">'+d.text+'</div>';
 $('chat').scrollTop=9999;
 }
+else if(d.type==='file'){
+var link='<a href="data:'+d.mime+';base64,'+d.data+'" download="'+d.name+'" style="color:#6af">'+d.name+'</a>';
+$('chat').innerHTML+='<div class="msg peer">📎 '+link+' ('+Math.round(d.size/1024)+'KB)</div>';
+$('chat').scrollTop=9999;
+}
 else if(d.type==='connect'){
 log('tcp connect: '+d.host+':'+d.port);
 if(backend&&backend.readyState===1){
@@ -205,138 +213,6 @@ $('chat').scrollTop=9999;
 $('msg').value='';
 }
 
-function downloadSocks(){
-var s=[
-'# SOCKS5 Local Bridge for Windows',
-'# This runs a LOCAL server - the browser relays to Ubuntu',
-'# Run: powershell -ExecutionPolicy Bypass -File socks-bridge.ps1',
-'',
-'$bridgePort = 9998  # Browser connects here',
-'$socksPort = 7777   # SOCKS5 proxy port',
-'',
-'Write-Host "=== SOCKS5 Bridge ===" -ForegroundColor Cyan',
-'Write-Host ""',
-'',
-'# Check if ports in use',
-'foreach ($p in @($bridgePort, $socksPort)) {',
-'    $test = New-Object System.Net.Sockets.TcpClient',
-'    try { $test.Connect("127.0.0.1", $p); $test.Close()',
-'        Write-Host "ERROR: Port $p in use. Close other windows first." -ForegroundColor Red',
-'        Read-Host "Press Enter"; exit 1',
-'    } catch {} finally { $test.Dispose() }',
-'}',
-'',
-'Add-Type -TypeDefinition @"',
-'using System;',
-'using System.Net;',
-'using System.Net.Sockets;',
-'using System.Text;',
-'using System.Security.Cryptography;',
-'public class WsServer {',
-'    TcpListener listener;',
-'    TcpClient client;',
-'    NetworkStream stream;',
-'    public bool Connected { get { return client != null && client.Connected; } }',
-'    public WsServer(int port) { listener = new TcpListener(IPAddress.Loopback, port); }',
-'    public void Start() { listener.Start(); }',
-'    public void Stop() { listener.Stop(); if (client != null) client.Close(); }',
-'    public bool Accept() {',
-'        if (!listener.Pending()) return false;',
-'        client = listener.AcceptTcpClient();',
-'        stream = client.GetStream();',
-'        byte[] buf = new byte[4096];',
-'        int n = stream.Read(buf, 0, buf.Length);',
-'        string req = Encoding.UTF8.GetString(buf, 0, n);',
-'        string key = "";',
-'        foreach (string line in req.Split(new[]{"\r\n"}, StringSplitOptions.None)) {',
-'            if (line.StartsWith("Sec-WebSocket-Key:")) key = line.Substring(19).Trim();',
-'        }',
-'        string accept = Convert.ToBase64String(SHA1.Create().ComputeHash(',
-'            Encoding.UTF8.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));',
-'        string resp = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n";',
-'        byte[] respBytes = Encoding.UTF8.GetBytes(resp);',
-'        stream.Write(respBytes, 0, respBytes.Length);',
-'        return true;',
-'    }',
-'    public void Send(string msg) {',
-'        byte[] data = Encoding.UTF8.GetBytes(msg);',
-'        byte[] frame = new byte[2 + data.Length];',
-'        frame[0] = 0x81;',
-'        frame[1] = (byte)data.Length;',
-'        Array.Copy(data, 0, frame, 2, data.Length);',
-'        stream.Write(frame, 0, frame.Length);',
-'    }',
-'}',
-'"@',
-'',
-'try {',
-'    $ws = New-Object WsServer($bridgePort)',
-'    $ws.Start()',
-'    Write-Host "Bridge server on localhost:$bridgePort" -ForegroundColor Green',
-'    Write-Host ""',
-'    Write-Host "NOW: In the browser dashboard, enter this as Backend:" -ForegroundColor Yellow',
-'    Write-Host "  ws://127.0.0.1:$bridgePort" -ForegroundColor White',
-'    Write-Host "Then click Connect" -ForegroundColor Yellow',
-'    Write-Host ""',
-'    Write-Host "Waiting for browser connection..."',
-'    ',
-'    while (-not $ws.Connected) {',
-'        $ws.Accept() | Out-Null',
-'        Start-Sleep -Milliseconds 100',
-'    }',
-'    Write-Host "Browser connected!" -ForegroundColor Green',
-'    ',
-'    # Now start SOCKS listener',
-'    $socks = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $socksPort)',
-'    $socks.Start()',
-'    Write-Host ""',
-'    Write-Host "SOCKS5 proxy on localhost:$socksPort" -ForegroundColor Green',
-'    Write-Host "Configure browser proxy: SOCKS5 = 127.0.0.1:$socksPort"',
-'    Write-Host ""',
-'    ',
-'    while ($true) {',
-'        if ($socks.Pending()) {',
-'            $c = $socks.AcceptTcpClient()',
-'            $st = $c.GetStream()',
-'            $buf = New-Object byte[] 512',
-'            $st.Read($buf, 0, 256) | Out-Null',
-'            if ($buf[0] -eq 5) {',
-'                $st.Write([byte[]](5,0), 0, 2)',
-'                $st.Read($buf, 0, 256) | Out-Null',
-'                if ($buf[1] -eq 1) {',
-'                    if ($buf[3] -eq 1) {',
-'                        $h = "$($buf[4]).$($buf[5]).$($buf[6]).$($buf[7])"',
-'                        $p = $buf[8]*256 + $buf[9]',
-'                    } elseif ($buf[3] -eq 3) {',
-'                        $len = $buf[4]',
-'                        $h = [Text.Encoding]::ASCII.GetString($buf, 5, $len)',
-'                        $p = $buf[5+$len]*256 + $buf[6+$len]',
-'                    }',
-'                    Write-Host "CONNECT $h`:$p" -ForegroundColor Yellow',
-'                    $ws.Send("{`"type`":`"connect`",`"host`":`"$h`",`"port`":$p}")',
-'                    $st.Write([byte[]](5,0,0,1,0,0,0,0,0,0), 0, 10)',
-'                }',
-'            }',
-'            $c.Close()',
-'        }',
-'        Start-Sleep -Milliseconds 50',
-'    }',
-'}',
-'catch {',
-'    Write-Host "ERROR: $_" -ForegroundColor Red',
-'    Read-Host "Press Enter to exit"',
-'}',
-'finally {',
-'    if ($ws) { $ws.Stop() }',
-'    if ($socks) { $socks.Stop() }',
-'}'
-];
-var a=document.createElement('a');
-a.href='data:text/plain;charset=utf-8,'+encodeURIComponent(s.join('\r\n'));
-a.download='socks-bridge.ps1';
-a.click();
-}
-
 var gen=function(){return'XXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
 
 $('btnBackend').onclick=connectBackend;
@@ -345,7 +221,20 @@ $('btnJoin').onclick=function(){var c=$('room').value.trim();if(c.length>=4)join
 $('room').onkeydown=function(e){if(e.key==='Enter')$('btnJoin').click()};
 $('btnSend').onclick=sendChat;
 $('msg').onkeydown=function(e){if(e.key==='Enter')sendChat()};
-$('btnSocks').onclick=downloadSocks;
+$('btnFile').onclick=function(){$('fileInput').click()};
+$('fileInput').onchange=function(){
+var f=this.files[0];if(!f||!channel||!peerId)return;
+if(f.size>5*1024*1024){alert('Max file size: 5MB');return;}
+var r=new FileReader();
+r.onload=function(){
+var b64=r.result.split(',')[1];
+channel.publish('data',{type:'file',from:myId,name:f.name,mime:f.type||'application/octet-stream',size:f.size,data:b64});
+$('chat').innerHTML+='<div class="msg you">📎 '+f.name+' ('+Math.round(f.size/1024)+'KB) sent</div>';
+$('chat').scrollTop=9999;
+};
+r.readAsDataURL(f);
+$('fileInput').value='';
+};
 
 log('ready');
 </script>
