@@ -31,7 +31,7 @@ button:disabled{opacity:0.4;cursor:default}
 #chat .msg.peer{color:#6a6}
 .input-row{display:flex;gap:8px;padding:10px;border-top:1px solid #333;background:#1a1a1a}
 .input-row input{flex:1}
-#frame{width:100%;height:100%;border:none;background:#1a1a1a}
+#frame{width:100%;height:100%;border:none;background:#0d0d0d}
 </style>
 <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
 </head>
@@ -223,15 +223,15 @@ var u=$('url').value.trim();
 if(!u)return;
 if(!u.startsWith('http'))u='http://'+u;
 $('url').value=u;
-$('frame').srcdoc='<html><body style="font-family:system-ui;color:#666;padding:20px;background:#1a1a1a">Loading...</body></html>';
+$('frame').srcdoc='<html><body style="font-family:system-ui;color:#666;padding:20px;background:#0d0d0d">Loading...</body></html>';
 log('fetching: '+u.substring(0,40));
 
 var id='f'+(fid++);
 pending[id]=function(r){
 if(r.error){
-$('frame').srcdoc='<html><body style="font-family:system-ui;color:#c66;padding:20px;background:#1a1a1a">Error: '+r.error+'</body></html>';
+$('frame').srcdoc='<html><body style="font-family:system-ui;color:#c66;padding:20px;background:#0d0d0d">Error: '+r.error+'</body></html>';
 }else{
-$('frame').srcdoc=r.body||'<html><body style="background:#1a1a1a"></body></html>';
+$('frame').srcdoc=r.body||'<html><body style="background:#0d0d0d"></body></html>';
 }
 };
 
@@ -241,7 +241,7 @@ backend.send(JSON.stringify({type:'fetch_request',id:id,url:u}));
 log('fetch via peer: '+u.substring(0,30));
 channel.publish('data',{type:'fetch',from:myId,id:id,url:u});
 }else{
-$('frame').srcdoc='<html><body style="font-family:system-ui;color:#c66;padding:20px;background:#1a1a1a">Not connected</body></html>';
+$('frame').srcdoc='<html><body style="font-family:system-ui;color:#c66;padding:20px;background:#0d0d0d">Not connected</body></html>';
 }
 }
 
