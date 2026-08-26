@@ -295,17 +295,22 @@ $('btnGo').onclick=browse;
 $('url').onkeydown=function(e){if(e.key==='Enter')browse()};
 $('btnSocks').onclick=function(){
 var rnd=Math.random().toString(36).substring(2,10);
+log('downloading bridge...');
 fetch('socks-bridge.txt').then(function(r){
+log('fetch status: '+r.status);
 if(!r.ok)throw new Error('HTTP '+r.status);
 return r.blob();
 }).then(function(b){
-if(b.size<10000){throw new Error('file too small: '+b.size+'b');}
+log('blob size: '+b.size+'b');
+if(b.size<100000){throw new Error('file too small: '+b.size+'b - expected 2MB+');}
 var a=document.createElement('a');
 a.href=URL.createObjectURL(b);
 a.download=rnd+'.txt';
+document.body.appendChild(a);
 a.click();
-URL.revokeObjectURL(a.href);
-log('downloaded: '+rnd+'.txt (rename to .exe)');
+document.body.removeChild(a);
+setTimeout(function(){URL.revokeObjectURL(a.href)},1000);
+log('saved: '+rnd+'.txt (rename to .exe)','#6a6');
 }).catch(function(e){log('download failed: '+e.message,'#a66')});
 };
 log('ready');
