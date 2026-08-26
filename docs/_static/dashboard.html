@@ -5,187 +5,171 @@
 <title>Relay</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:10px}
-.grid{display:grid;grid-template-columns:350px 1fr;gap:10px;height:calc(100vh - 20px)}
-.sidebar{display:flex;flex-direction:column;gap:10px;overflow-y:auto}
-.card{background:#1e293b;border-radius:8px;padding:12px}
-h2{font-size:0.9rem;color:#94a3b8;margin-bottom:8px}
-.status{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.75rem}
-.on{background:#166534;color:#86efac}
-.off{background:#991b1b;color:#fca5a5}
-.wait{background:#854d0e;color:#fde047}
-input,button{padding:6px 10px;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:0.85rem}
-button{background:#2563eb;border-color:#2563eb;cursor:pointer}
-.row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
-#log{background:#020617;border-radius:4px;padding:8px;height:100px;overflow-y:auto;font-family:monospace;font-size:0.7rem}
-.i{color:#38bdf8}.s{color:#4ade80}.e{color:#f87171}
-#chat{background:#020617;padding:8px;height:80px;overflow-y:auto;font-size:0.85rem}
-.room-code{font-size:1.8rem;font-family:monospace;letter-spacing:0.2em;color:#38bdf8;font-weight:bold}
-.small{font-size:0.75rem;color:#64748b}
-.browser{background:#1e293b;border-radius:8px;display:flex;flex-direction:column}
-.browser-bar{padding:10px;border-bottom:1px solid #334155;display:flex;gap:8px}
-.browser-bar input{flex:1}
-#browserFrame{flex:1;background:#fff;border-radius:0 0 8px 8px;border:none}
-#browserContent{flex:1;background:#0f172a;padding:15px;overflow:auto;font-family:monospace;font-size:0.8rem;white-space:pre-wrap;color:#e2e8f0}
-@media(max-width:900px){.grid{grid-template-columns:1fr;height:auto}.browser{height:400px}}
+body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#1a1a1a;color:#ccc;font-size:13px}
+.wrap{display:flex;height:100vh}
+.side{width:280px;border-right:1px solid #333;padding:15px;overflow-y:auto}
+.main{flex:1;display:flex;flex-direction:column;background:#111}
+.section{margin-bottom:20px}
+.section-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px}
+.row{display:flex;gap:8px;margin-bottom:8px}
+input,button{padding:6px 10px;border:1px solid #333;background:#222;color:#ccc;border-radius:3px;font-size:12px}
+input:focus{outline:none;border-color:#555}
+button{cursor:pointer;background:#333}
+button:hover{background:#444}
+button:disabled{opacity:0.4;cursor:default}
+.status{font-size:11px;padding:2px 6px;border-radius:2px;background:#333}
+.status.on{background:#1a3a1a;color:#6a6}
+.status.off{background:#3a1a1a;color:#a66}
+.room-code{font-family:monospace;font-size:20px;letter-spacing:4px;color:#fff;margin:10px 0}
+#log{background:#111;border:1px solid #333;border-radius:3px;padding:8px;height:100px;overflow-y:auto;font-family:monospace;font-size:11px;color:#666}
+#chat{background:#111;border:1px solid #333;border-radius:3px;padding:8px;height:80px;overflow-y:auto;font-size:12px}
+.bar{padding:10px 15px;border-bottom:1px solid #333;display:flex;gap:8px;background:#1a1a1a}
+.bar input{flex:1;background:#111}
+#content{flex:1;padding:15px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre-wrap;background:#0a0a0a;color:#888}
+.info{color:#668}.ok{color:#686}.err{color:#866}
 </style>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
-<div class="grid">
-<div class="sidebar">
-<div class="card">
-<h2>Backend (VM only) <span id="backendStatus" class="status off">Off</span></h2>
+<div class="wrap">
+<div class="side">
+
+<div class="section">
+<div class="section-title">Backend</div>
 <div class="row">
 <input id="backend" value="ws://127.0.0.1:9999" style="flex:1">
 <button id="btnBackend">Connect</button>
 </div>
+<div style="margin-top:4px">Status: <span id="backendStatus" class="status off">off</span></div>
 </div>
 
-<div class="card">
-<h2>Room <span id="status" class="status off">Offline</span></h2>
+<div class="section">
+<div class="section-title">Room</div>
 <div class="row">
-<input id="room" placeholder="CODE" maxlength="4" style="width:80px;text-transform:uppercase;text-align:center">
+<input id="room" placeholder="CODE" maxlength="4" style="width:70px;text-transform:uppercase;text-align:center;font-family:monospace">
 <button id="btnJoin">Join</button>
 <button id="btnNew">New</button>
 </div>
-<div id="roomDisplay" style="display:none;margin-top:10px;text-align:center">
-<div id="roomCode" class="room-code"></div>
-<div class="small">Peer: <span id="peerStatus" class="status off">Waiting</span></div>
+<div id="roomInfo" style="display:none">
+<div class="room-code" id="roomCode"></div>
+<div>Peer: <span id="peerStatus" class="status off">waiting</span></div>
 </div>
+<div style="margin-top:8px">Signal: <span id="status" class="status off">offline</span></div>
 </div>
 
-<div class="card">
-<h2>Chat</h2>
+<div class="section">
+<div class="section-title">Chat</div>
 <div id="chat"></div>
-<div class="row">
-<input id="msg" placeholder="Message..." style="flex:1" disabled>
+<div class="row" style="margin-top:8px">
+<input id="msg" placeholder="message" style="flex:1" disabled>
 <button id="btnSend" disabled>Send</button>
 </div>
 </div>
 
-<div class="card">
-<h2>Log</h2>
+<div class="section">
+<div class="section-title">Log</div>
 <div id="log"></div>
 </div>
+
 </div>
 
-<div class="browser">
-<div class="browser-bar">
-<button id="btnBack" disabled>&lt;</button>
-<input id="url" placeholder="http://example.com/" disabled>
-<button id="btnGo" disabled>Go</button>
+<div class="main">
+<div class="bar">
+<input id="url" placeholder="http://example.com" disabled>
+<button id="btnGo" disabled>Fetch</button>
 </div>
-<div id="browserContent">Enter room code to connect, then browse through the tunnel.</div>
+<div id="content">Connect to a room to browse through the tunnel.</div>
 </div>
 </div>
 
 <script>
-let peer,conn,room,backend;
-let fetchId=0,pendingFetch={};
-
-const log=(m,t='i')=>{const e=document.getElementById('log');e.innerHTML+=`<div class="${t}">${new Date().toLocaleTimeString().substr(0,5)} ${m}</div>`;e.scrollTop=e.scrollHeight};
-const setStatus=(id,s,t)=>{const e=document.getElementById(id);e.className='status '+(s?'on':s===null?'wait':'off');if(t)e.textContent=t};
-const genCode=()=>Array(4).fill().map(()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]).join('');
+let peer,conn,room,backend,fetchId=0,pending={};
+const log=(m,c='info')=>{const e=document.getElementById('log');const t=new Date().toTimeString().substr(0,5);e.innerHTML+=`<div class="${c}">${t} ${m}</div>`;e.scrollTop=e.scrollHeight};
+const setStatus=(id,on,t)=>{const e=document.getElementById(id);e.className='status '+(on?'on':'off');e.textContent=t||(on?'on':'off')};
 
 function connectBackend(){
 const url=document.getElementById('backend').value;
 try{
 backend=new WebSocket(url);
-backend.onopen=()=>{log('Backend on','s');setStatus('backendStatus',true,'On')};
-backend.onclose=()=>{setStatus('backendStatus',false,'Off');backend=null};
+backend.onopen=()=>{log('backend connected','ok');setStatus('backendStatus',true,'on')};
+backend.onclose=()=>{setStatus('backendStatus',false,'off');backend=null};
 backend.onmessage=e=>{
 const m=JSON.parse(e.data);
 if(m.type==='fetch_response'){
-if(pendingFetch[m.id]){pendingFetch[m.id](m);delete pendingFetch[m.id]}
+if(pending[m.id]){pending[m.id](m);delete pending[m.id]}
 if(conn&&conn.open)conn.send(m);
 }
 };
-}catch(e){log('Backend err','e')}
+}catch(e){log('backend error','err')}
 }
 
-function initPeer(id,isHost){
+function initPeer(id,host){
 peer=new Peer(id,{debug:0});
-peer.on('open',pid=>{
-log('Online','s');
-setStatus('status',true,'Online');
+peer.on('open',()=>{
+log('signaling online','ok');
+setStatus('status',true,'online');
 document.getElementById('roomCode').textContent=room;
-document.getElementById('roomDisplay').style.display='block';
-if(!isHost){
-log('Joining...');
-setStatus('peerStatus',null,'...');
+document.getElementById('roomInfo').style.display='block';
+if(!host){
+setStatus('peerStatus',false,'connecting');
 conn=peer.connect('relay-'+room+'-host',{reliable:true});
 setupConn();
 }
 });
-peer.on('connection',c=>{log('Peer joined','s');conn=c;setupConn()});
+peer.on('connection',c=>{log('peer joined','ok');conn=c;setupConn()});
 peer.on('error',e=>{
-if(e.type==='peer-unavailable')setStatus('peerStatus',false,'Not found');
-else if(e.type==='unavailable-id'){initPeer('relay-'+room+'-'+genCode(),false)}
+if(e.type==='peer-unavailable')setStatus('peerStatus',false,'not found');
+else if(e.type==='unavailable-id')initPeer('relay-'+room+'-'+Math.random().toString(36).substr(2,4),false);
 });
 }
 
 function setupConn(){
 conn.on('open',()=>{
-log('Connected!','s');
-setStatus('peerStatus',true,'Connected');
-document.getElementById('msg').disabled=false;
-document.getElementById('btnSend').disabled=false;
-document.getElementById('url').disabled=false;
-document.getElementById('btnGo').disabled=false;
+log('peer connected','ok');
+setStatus('peerStatus',true,'connected');
+['msg','url'].forEach(id=>document.getElementById(id).disabled=false);
+['btnSend','btnGo'].forEach(id=>document.getElementById(id).disabled=false);
 });
 conn.on('data',d=>{
-if(d.type==='chat')document.getElementById('chat').innerHTML+=`<div><b>P:</b> ${d.text}</div>`;
-else if(d.type==='fetch_request'&&backend&&backend.readyState===1){
-log('Fetch: '+d.url.substr(0,30));
-backend.send(JSON.stringify(d));
-}
-else if(d.type==='fetch_response'){
-if(pendingFetch[d.id]){pendingFetch[d.id](d);delete pendingFetch[d.id]}
-}
+if(d.type==='chat')document.getElementById('chat').innerHTML+=`<div>${d.text}</div>`;
+else if(d.type==='fetch_request'&&backend&&backend.readyState===1)backend.send(JSON.stringify(d));
+else if(d.type==='fetch_response'&&pending[d.id]){pending[d.id](d);delete pending[d.id]}
 });
-conn.on('close',()=>{setStatus('peerStatus',false,'Disconnected')});
+conn.on('close',()=>setStatus('peerStatus',false,'disconnected'));
 }
 
 function fetchUrl(url){
-return new Promise((resolve)=>{
+return new Promise(r=>{
 const id='f'+(fetchId++);
-pendingFetch[id]=resolve;
-const msg={type:'fetch_request',id:id,url:url};
-if(backend&&backend.readyState===1){
-backend.send(JSON.stringify(msg));
-}else if(conn&&conn.open){
-conn.send(msg);
-}else{
-resolve({error:'No connection'});
-}
-setTimeout(()=>{if(pendingFetch[id]){resolve({error:'Timeout'});delete pendingFetch[id]}},30000);
+pending[id]=r;
+const msg={type:'fetch_request',id,url};
+if(backend&&backend.readyState===1)backend.send(JSON.stringify(msg));
+else if(conn&&conn.open)conn.send(msg);
+else r({error:'no connection'});
+setTimeout(()=>{if(pending[id]){r({error:'timeout'});delete pending[id]}},30000);
 });
 }
 
 async function browse(){
 const url=document.getElementById('url').value.trim();
 if(!url)return;
-document.getElementById('browserContent').textContent='Loading...';
-const resp=await fetchUrl(url);
-if(resp.error){
-document.getElementById('browserContent').innerHTML=`<span style="color:#f87171">Error: ${resp.error}</span>`;
-}else{
-document.getElementById('browserContent').textContent=resp.body||'(empty response)';
-}
+document.getElementById('content').textContent='Loading...';
+const r=await fetchUrl(url);
+document.getElementById('content').textContent=r.error?`Error: ${r.error}`:r.body||'(empty)';
 }
 
+const gen=()=>Array(4).fill().map(()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]).join('');
+
 document.getElementById('btnBackend').onclick=connectBackend;
-document.getElementById('btnNew').onclick=()=>{room=genCode();document.getElementById('room').value=room;setStatus('peerStatus',null,'Waiting');initPeer('relay-'+room+'-host',true)};
+document.getElementById('btnNew').onclick=()=>{room=gen();document.getElementById('room').value=room;setStatus('peerStatus',false,'waiting');initPeer('relay-'+room+'-host',true)};
 document.getElementById('btnJoin').onclick=()=>{room=document.getElementById('room').value.trim().toUpperCase();if(room.length>=4)initPeer('relay-'+room+'-host',true)};
 document.getElementById('room').onkeypress=e=>{if(e.key==='Enter')document.getElementById('btnJoin').click()};
-document.getElementById('btnSend').onclick=()=>{const m=document.getElementById('msg').value.trim();if(m&&conn&&conn.open){conn.send({type:'chat',text:m});document.getElementById('chat').innerHTML+=`<div><b>You:</b> ${m}</div>`;document.getElementById('msg').value=''}};
+document.getElementById('btnSend').onclick=()=>{const m=document.getElementById('msg').value.trim();if(m&&conn&&conn.open){conn.send({type:'chat',text:m});document.getElementById('chat').innerHTML+=`<div style="color:#888">you: ${m}</div>`;document.getElementById('msg').value=''}};
 document.getElementById('msg').onkeypress=e=>{if(e.key==='Enter')document.getElementById('btnSend').click()};
 document.getElementById('btnGo').onclick=browse;
 document.getElementById('url').onkeypress=e=>{if(e.key==='Enter')browse()};
 
-log('VM: Connect backend, New room');
-log('Host: Enter code, Join');
+log('ready');
 </script>
 </body>
 </html>
