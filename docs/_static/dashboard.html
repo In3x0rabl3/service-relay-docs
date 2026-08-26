@@ -119,7 +119,7 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 </div>
 
 <script>
-var room,ably,channel,backend,pending={},fid=0,myId,peerId=null,connected=false;
+var room,ably,channel,backend,bridge,pending={},fid=0,myId,peerId=null,connected=false;
 var $=function(i){return document.getElementById(i)};
 var log=function(m,c){$('log').innerHTML+='<div style="color:'+(c||'#555')+'">'+m+'</div>';$('log').scrollTop=9999};
 var setS=function(i,on,t){var e=$(i);e.className='status '+(on?'on':'off');e.textContent=t||(on?'online':'offline')};
@@ -146,17 +146,21 @@ channel.publish('data',{type:'response',from:myId,id:m.id,status:m.status,header
 else if(m.type==='connected'){
 log('tcp connected: '+m.session);
 if(channel)channel.publish('data',{type:'tcp_connected',from:myId,session:m.session});
+sendToBridge({type:'tcp_connected',session:m.session});
 }
 else if(m.type==='data'){
 if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:m.data});
+sendToBridge({type:'tcp_data',session:m.session,data:m.data});
 }
 else if(m.type==='closed'){
 log('tcp closed: '+m.session);
 if(channel)channel.publish('data',{type:'tcp_closed',from:myId,session:m.session});
+sendToBridge({type:'tcp_closed',session:m.session});
 }
 else if(m.type==='error'){
 log('tcp error: '+m.msg,'#a66');
 if(channel)channel.publish('data',{type:'tcp_error',from:myId,session:m.session,error:m.msg});
+sendToBridge({type:'tcp_error',session:m.session,error:m.msg});
 }
 };
 }catch(e){log('backend error','#a66')}
@@ -169,6 +173,50 @@ log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
 $('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=$('httpMethod').disabled=$('httpHeaders').disabled=$('httpBody').disabled=false;
 $('msg').focus();
+tryConnectBridge();
+}
+
+function tryConnectBridge(){
+try{
+bridge=new WebSocket('ws://127.0.0.1:9998');
+bridge.onopen=function(){
+log('local bridge connected','#6a6');
+setS('socksStatus',1,'online');
+};
+bridge.onclose=function(){setS('socksStatus',0,'offline');bridge=null};
+bridge.onerror=function(){bridge=null};
+bridge.onmessage=function(e){
+var m=JSON.parse(e.data);
+if(m.type==='bridge_init'){
+log('bridge room: '+m.room);
+}else if(m.type==='tcp_connect'){
+log('bridge tcp: '+m.host+':'+m.port);
+if(channel&&peerId){
+channel.publish('data',{type:'tcp_connect',from:myId,session:m.session,host:m.host,port:m.port});
+}else if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'connect',session:m.session,host:m.host,port:m.port}));
+}
+}else if(m.type==='tcp_data'){
+if(channel&&peerId){
+channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:m.data});
+}else if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'data',session:m.session,data:m.data}));
+}
+}else if(m.type==='tcp_close'){
+if(channel&&peerId){
+channel.publish('data',{type:'tcp_close',from:myId,session:m.session});
+}else if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'close',session:m.session}));
+}
+}
+};
+}catch(e){}
+}
+
+function sendToBridge(msg){
+if(bridge&&bridge.readyState===1){
+bridge.send(JSON.stringify(msg));
+}
 }
 
 function joinRoom(code,isNew){
@@ -244,6 +292,18 @@ else if(d.type==='tcp_close'){
 if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'close',session:d.session}));
 }
+}
+else if(d.type==='tcp_connected'){
+sendToBridge({type:'tcp_connected',session:d.session});
+}
+else if(d.type==='tcp_data'){
+sendToBridge({type:'tcp_data',session:d.session,data:d.data});
+}
+else if(d.type==='tcp_closed'){
+sendToBridge({type:'tcp_closed',session:d.session});
+}
+else if(d.type==='tcp_error'){
+sendToBridge({type:'tcp_error',session:d.session,error:d.error});
 }
 else if(d.type==='bridge_request'){
 log('peer wants bridge...');
