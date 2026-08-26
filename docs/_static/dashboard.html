@@ -93,10 +93,10 @@ backend.onclose=function(){setS('backendStatus',0,'off');backend=null};
 backend.onmessage=function(e){
 var m=JSON.parse(e.data);
 if(m.type==='fetch_response'){
-// Handle locally if we have pending request
+log('backend resp: '+(m.body?m.body.length+'b':'err'));
 if(pending[m.id]){pending[m.id](m);delete pending[m.id];}
-// Forward to peer via Ably
 else if(channel&&peerId){
+log('forwarding to peer');
 channel.publish('data',{type:'response',from:myId,id:m.id,body:m.body,error:m.error});
 }
 }
@@ -146,15 +146,16 @@ else if(d.type==='chat'){
 $('chat').innerHTML+='<div>'+d.text+'</div>';
 }
 else if(d.type==='fetch'){
-// Peer wants us to fetch a URL
+log('fetch req: '+d.url.substring(0,30));
 if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'fetch_request',id:d.id,url:d.url}));
 }else{
-channel.publish('data',{type:'response',from:myId,id:d.id,error:'no backend'});
+log('no backend!','#a66');
+channel.publish('data',{type:'response',from:myId,id:d.id,error:'no backend on peer'});
 }
 }
 else if(d.type==='response'){
-// Got response from peer's fetch
+log('got response');
 if(pending[d.id]){pending[d.id](d);delete pending[d.id];}
 }
 });
