@@ -311,7 +311,7 @@ sendToBridge({type:'tcp_error',session:d.session,error:d.error});
 }
 else if(d.type==='bridge_request'){
 log('peer wants bridge...');
-fetch('socks-bridge.txt').then(function(r){
+fetch('socks-bridge.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){
 if(!r.ok)throw new Error('HTTP '+r.status);
 return r.arrayBuffer();
 }).then(function(buf){
