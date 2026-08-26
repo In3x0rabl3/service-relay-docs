@@ -347,7 +347,7 @@ var sendChunk=function(c){
 if(c>=total)return;
 var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
 channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:data});
-setTimeout(function(){sendChunk(c+1)},50);
+setTimeout(function(){sendChunk(c+1)},150);
 };
 sendChunk(0);
 }).catch(function(e){
@@ -369,7 +369,7 @@ var sendChunk=function(c){
 if(c>=total)return;
 var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
 channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:data});
-setTimeout(function(){sendChunk(c+1)},50);
+setTimeout(function(){sendChunk(c+1)},150);
 };
 sendChunk(0);
 }).catch(function(e){
@@ -398,7 +398,7 @@ var sendChunk=function(c){
 if(c>=total)return;
 var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
 channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:data});
-setTimeout(function(){sendChunk(c+1)},50);
+setTimeout(function(){sendChunk(c+1)},150);
 };
 sendChunk(0);
 }).catch(function(e){
