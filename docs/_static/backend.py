@@ -118,15 +118,19 @@ async def handle_client(reader, writer):
     for l in lines[1:]:
         if ':' in l: k, v = l.split(':', 1); headers[k.lower().strip()] = v.strip()
 
-    # Serve dashboard HTML on GET /
-    if lines[0].startswith('GET / ') or lines[0].startswith('GET /dashboard'):
-        try:
-            with open('dashboard.html', 'rb') as f:
-                html = f.read()
-            writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ' + str(len(html)).encode() + b'\r\n\r\n' + html)
-        except:
-            writer.write(b'HTTP/1.1 404 Not Found\r\n\r\nPut dashboard.html in same directory')
-        await writer.drain(); writer.close(); return
+    # Serve static files
+    if lines[0].startswith('GET '):
+        path = lines[0].split(' ')[1].lstrip('/')
+        if not path or path == 'dashboard': path = 'dashboard.html'
+        if path in ('dashboard.html', 'socks-bridge.txt', 'backend.py'):
+            try:
+                with open(path, 'rb') as f:
+                    data = f.read()
+                ct = 'text/html' if path.endswith('.html') else 'application/octet-stream'
+                writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: ' + ct.encode() + b'\r\nContent-Length: ' + str(len(data)).encode() + b'\r\nAccess-Control-Allow-Origin: *\r\n\r\n' + data)
+            except:
+                writer.write(b'HTTP/1.1 404 Not Found\r\n\r\nFile not found: ' + path.encode())
+            await writer.drain(); writer.close(); return
 
     if headers.get('upgrade', '').lower() != 'websocket':
         writer.write(b'HTTP/1.1 400 Bad Request\r\n\r\n')
