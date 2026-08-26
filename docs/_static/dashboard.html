@@ -21,8 +21,8 @@ button:hover { background: #1d4ed8; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-green { background: #166534; border-color: #166534; }
 .btn-red { background: #991b1b; border-color: #991b1b; }
-.row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
-.row input, .row textarea { flex: 1; }
+.row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
+.row input, .row textarea { flex: 1; min-width: 150px; }
 #log { background: #020617; border-radius: 4px; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; color: #94a3b8; }
 #log .info { color: #38bdf8; }
 #log .success { color: #4ade80; }
@@ -35,11 +35,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .tab.active { background: #2563eb; }
 .panel { display: none; }
 .panel.active { display: block; }
-.code-box { background: #020617; border-radius: 4px; padding: 10px; font-family: monospace; font-size: 0.7rem; word-break: break-all; max-height: 150px; overflow-y: auto; cursor: pointer; }
+.code-box { background: #020617; border-radius: 4px; padding: 10px; font-family: monospace; font-size: 0.7rem; word-break: break-all; max-height: 150px; overflow-y: auto; cursor: pointer; user-select: all; }
 .code-box:hover { background: #0f172a; }
 .help { font-size: 0.8rem; color: #64748b; margin-top: 5px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
 @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+.backend-status { font-size: 0.8rem; margin-left: auto; }
 </style>
 </head>
 <body>
@@ -54,6 +55,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 <option value="offer">Initiator (Create Offer)</option>
 <option value="answer">Responder (Accept Offer)</option>
 </select>
+<span class="backend-status">Backend: <span id="backendStatus" class="status disconnected">Off</span></span>
+</div>
+<div class="row">
+<span>Backend URL:</span>
+<input type="text" id="backendUrl" value="ws://127.0.0.1:9999" style="width:200px">
+<button id="btnBackend">Connect Backend</button>
 </div>
 </div>
 
@@ -84,7 +91,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 </div>
 
 <div id="step3" class="panel">
-<p class="help">Step 3: Exchange ICE candidates (if needed)</p>
+<p class="help">Step 3: Exchange ICE candidates (usually auto-gathered in SDP)</p>
 <p class="help">Your ICE candidates:</p>
 <div id="localIce" class="code-box" onclick="copyIce()">Gathering...</div>
 <p class="help" style="margin-top:10px">Remote ICE (paste if connection doesn't establish):</p>
@@ -106,19 +113,19 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 </div>
 
 <div class="card">
-<h2>SOCKS Proxy</h2>
+<h2>TCP Proxy</h2>
 <div class="row">
-<span>Target:</span>
-<input type="text" id="socksTarget" placeholder="host:port" style="flex:1">
-<button id="btnConnect" disabled>Connect</button>
-</div>
-<div class="row" style="margin-top:10px">
-<textarea id="socksData" rows="3" placeholder="Data to send (hex or text)..." disabled></textarea>
+<input type="text" id="proxyTarget" placeholder="host:port" style="flex:1">
+<button id="btnProxyConnect" disabled>Connect</button>
 </div>
 <div class="row">
-<button id="btnSendData" disabled>Send Data</button>
-<button id="btnDisconnect" class="btn-red" disabled>Disconnect</button>
+<textarea id="proxyData" rows="2" placeholder="Data to send..." disabled></textarea>
 </div>
+<div class="row">
+<button id="btnProxySend" disabled>Send</button>
+<button id="btnProxyClose" class="btn-red" disabled>Close</button>
+</div>
+<div id="proxyResponse" style="margin-top:10px; font-family:monospace; font-size:0.8rem; max-height:100px; overflow-y:auto;"></div>
 </div>
 </div>
 
@@ -131,8 +138,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 <script>
 let pc = null;
 let dc = null;
+let backend = null;
 let iceCandidates = [];
 let isInitiator = true;
+let currentSession = null;
 
 function log(msg, type='info') {
     const el = document.getElementById('log');
@@ -141,10 +150,10 @@ function log(msg, type='info') {
     el.scrollTop = el.scrollHeight;
 }
 
-function setStatus(connected, text) {
-    const el = document.getElementById('connStatus');
+function setStatus(id, connected, text) {
+    const el = document.getElementById(id);
     el.className = 'status ' + (connected ? 'connected' : connected === null ? 'pending' : 'disconnected');
-    el.textContent = text || (connected ? 'Connected' : 'Not Connected');
+    el.textContent = text || (connected ? 'Connected' : 'Disconnected');
 }
 
 function addChat(from, text) {
@@ -176,6 +185,65 @@ function copyIce() {
     }
 }
 
+// Backend WebSocket connection for TCP proxying
+function connectBackend() {
+    const url = document.getElementById('backendUrl').value;
+    try {
+        backend = new WebSocket(url);
+        backend.onopen = () => {
+            log('Backend connected', 'success');
+            setStatus('backendStatus', true, 'On');
+        };
+        backend.onclose = () => {
+            log('Backend disconnected');
+            setStatus('backendStatus', false, 'Off');
+            backend = null;
+        };
+        backend.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+            handleBackendMessage(msg);
+        };
+        backend.onerror = () => {
+            log('Backend connection failed', 'error');
+        };
+    } catch (e) {
+        log('Backend error: ' + e, 'error');
+    }
+}
+
+function handleBackendMessage(msg) {
+    switch(msg.type) {
+        case 'connected':
+            log(`Session ${msg.session} connected via backend`, 'success');
+            currentSession = msg.session;
+            document.getElementById('btnProxySend').disabled = false;
+            document.getElementById('btnProxyClose').disabled = false;
+            // Forward to peer
+            if (dc && dc.readyState === 'open') {
+                dc.send(JSON.stringify(msg));
+            }
+            break;
+        case 'data':
+            // Display and forward
+            const decoded = atob(msg.data);
+            document.getElementById('proxyResponse').textContent += decoded;
+            if (dc && dc.readyState === 'open') {
+                dc.send(JSON.stringify(msg));
+            }
+            break;
+        case 'closed':
+            log(`Session ${msg.session} closed`);
+            currentSession = null;
+            if (dc && dc.readyState === 'open') {
+                dc.send(JSON.stringify(msg));
+            }
+            break;
+        case 'error':
+            log(`Backend error: ${msg.msg}`, 'error');
+            break;
+    }
+}
+
 function createPC() {
     pc = new RTCPeerConnection({
         iceServers: [
@@ -195,18 +263,15 @@ function createPC() {
 
     pc.onicegatheringstatechange = () => {
         log(`ICE gathering: ${pc.iceGatheringState}`);
-        if (pc.iceGatheringState === 'complete') {
-            document.getElementById('localIce').textContent = JSON.stringify(iceCandidates);
-        }
     };
 
     pc.onconnectionstatechange = () => {
         log(`Connection: ${pc.connectionState}`);
         if (pc.connectionState === 'connected') {
-            setStatus(true, 'Connected');
+            setStatus('connStatus', true, 'Connected');
             enableControls(true);
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-            setStatus(false, pc.connectionState);
+            setStatus('connStatus', false, pc.connectionState);
             enableControls(false);
         }
     };
@@ -228,42 +293,66 @@ function setupDataChannel() {
         enableControls(false);
     };
     dc.onmessage = (e) => {
-        handleMessage(e.data);
+        handlePeerMessage(e.data);
     };
 }
 
-function handleMessage(data) {
+function handlePeerMessage(data) {
     try {
         const msg = JSON.parse(data);
         switch(msg.type) {
             case 'chat':
                 addChat(msg.from || 'Peer', msg.text);
                 break;
+            case 'connect':
+                // Peer wants to connect - forward to backend
+                if (backend && backend.readyState === WebSocket.OPEN) {
+                    backend.send(JSON.stringify(msg));
+                    log(`Proxying connection to ${msg.host}:${msg.port}`);
+                } else {
+                    log('No backend connected for proxying', 'error');
+                }
+                break;
             case 'data':
-                log(`Received ${msg.data.length} bytes for session ${msg.session}`);
+                // Peer sending data - forward to backend
+                if (backend && backend.readyState === WebSocket.OPEN) {
+                    backend.send(JSON.stringify(msg));
+                }
+                // Also display
+                if (msg.data) {
+                    const decoded = atob(msg.data);
+                    document.getElementById('proxyResponse').textContent += decoded;
+                }
+                break;
+            case 'close':
+                if (backend && backend.readyState === WebSocket.OPEN) {
+                    backend.send(JSON.stringify(msg));
+                }
                 break;
             case 'connected':
-                log(`TCP session ${msg.session} connected`, 'success');
+                log(`Remote session ${msg.session} connected`, 'success');
+                currentSession = msg.session;
+                document.getElementById('btnProxySend').disabled = false;
+                document.getElementById('btnProxyClose').disabled = false;
                 break;
             case 'closed':
-                log(`TCP session ${msg.session} closed`);
+                log(`Remote session closed`);
+                currentSession = null;
                 break;
             case 'error':
-                log(`Error: ${msg.msg}`, 'error');
+                log(`Remote error: ${msg.msg}`, 'error');
                 break;
         }
     } catch {
-        log(`Raw data: ${data}`);
+        log(`Raw: ${data}`);
     }
 }
 
 function enableControls(enabled) {
     document.getElementById('chatInput').disabled = !enabled;
     document.getElementById('btnSend').disabled = !enabled;
-    document.getElementById('btnConnect').disabled = !enabled;
-    document.getElementById('socksData').disabled = !enabled;
-    document.getElementById('btnSendData').disabled = !enabled;
-    document.getElementById('btnDisconnect').disabled = !enabled;
+    document.getElementById('btnProxyConnect').disabled = !enabled;
+    document.getElementById('proxyData').disabled = !enabled;
 }
 
 async function generate() {
@@ -280,8 +369,8 @@ async function generate() {
         document.getElementById('btnGenerate').textContent = 'Regenerate';
         log('Offer generated - copy and send to peer');
     } else {
-        document.getElementById('localSdp').textContent = 'Paste remote offer first, then click "Set Remote SDP"';
-        log('Ready to receive offer');
+        document.getElementById('localSdp').textContent = 'Paste remote offer first in Step 2';
+        log('Ready to receive offer - go to Step 2');
     }
     showTab('step2');
 }
@@ -295,6 +384,11 @@ async function setRemote() {
 
     try {
         const sdp = JSON.parse(sdpText);
+
+        if (!pc) {
+            createPC();
+        }
+
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
         log('Remote SDP set');
 
@@ -306,7 +400,7 @@ async function setRemote() {
         }
 
         showTab('step3');
-        setStatus(null, 'Connecting...');
+        setStatus('connStatus', null, 'Connecting...');
     } catch (e) {
         log('Invalid SDP: ' + e, 'error');
     }
@@ -332,26 +426,64 @@ function sendChat() {
     const text = input.value.trim();
     if (!text || !dc || dc.readyState !== 'open') return;
 
-    dc.send(JSON.stringify({type: 'chat', text: text}));
+    dc.send(JSON.stringify({type: 'chat', from: 'Me', text: text}));
     addChat('You', text);
     input.value = '';
 }
 
-function connectSocks() {
-    const target = document.getElementById('socksTarget').value.trim();
-    if (!target || !dc || dc.readyState !== 'open') return;
+function proxyConnect() {
+    const target = document.getElementById('proxyTarget').value.trim();
+    if (!target) return;
 
     const [host, port] = target.split(':');
     const session = Math.random().toString(36).substr(2, 8);
-    dc.send(JSON.stringify({type: 'connect', host: host, port: parseInt(port), session: session}));
-    log(`Connecting to ${target}...`);
+    currentSession = session;
+
+    const msg = {type: 'connect', host: host, port: parseInt(port) || 80, session: session};
+
+    // If we have backend, use it directly
+    if (backend && backend.readyState === WebSocket.OPEN) {
+        backend.send(JSON.stringify(msg));
+        log(`Connecting to ${target} via backend...`);
+    }
+    // Otherwise send to peer
+    else if (dc && dc.readyState === 'open') {
+        dc.send(JSON.stringify(msg));
+        log(`Requesting peer to connect to ${target}...`);
+    } else {
+        log('No connection available', 'error');
+    }
+
+    document.getElementById('proxyResponse').textContent = '';
 }
 
-function sendSocksData() {
-    const data = document.getElementById('socksData').value.trim();
-    if (!data) return;
-    // Send raw data - implement as needed
-    log('Data send not implemented in demo');
+function proxySend() {
+    const data = document.getElementById('proxyData').value;
+    if (!data || !currentSession) return;
+
+    const msg = {type: 'data', session: currentSession, data: btoa(data)};
+
+    if (backend && backend.readyState === WebSocket.OPEN) {
+        backend.send(JSON.stringify(msg));
+    } else if (dc && dc.readyState === 'open') {
+        dc.send(JSON.stringify(msg));
+    }
+    log(`Sent ${data.length} bytes`);
+}
+
+function proxyClose() {
+    if (!currentSession) return;
+
+    const msg = {type: 'close', session: currentSession};
+
+    if (backend && backend.readyState === WebSocket.OPEN) {
+        backend.send(JSON.stringify(msg));
+    } else if (dc && dc.readyState === 'open') {
+        dc.send(JSON.stringify(msg));
+    }
+    currentSession = null;
+    document.getElementById('btnProxySend').disabled = true;
+    document.getElementById('btnProxyClose').disabled = true;
 }
 
 // Event listeners
@@ -359,13 +491,15 @@ document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => showTab(t.dataset.tab);
 });
 
+document.getElementById('btnBackend').onclick = connectBackend;
 document.getElementById('btnGenerate').onclick = generate;
 document.getElementById('btnSetRemote').onclick = setRemote;
 document.getElementById('btnAddIce').onclick = addIce;
 document.getElementById('btnSend').onclick = sendChat;
 document.getElementById('chatInput').onkeypress = (e) => { if (e.key === 'Enter') sendChat(); };
-document.getElementById('btnConnect').onclick = connectSocks;
-document.getElementById('btnSendData').onclick = sendSocksData;
+document.getElementById('btnProxyConnect').onclick = proxyConnect;
+document.getElementById('btnProxySend').onclick = proxySend;
+document.getElementById('btnProxyClose').onclick = proxyClose;
 
 document.getElementById('role').onchange = () => {
     document.getElementById('btnGenerate').textContent =
@@ -373,6 +507,7 @@ document.getElementById('role').onchange = () => {
 };
 
 log('Ready - select role and click Generate');
+log('On Ubuntu-VM: also click "Connect Backend" for TCP proxying');
 </script>
 </body>
 </html>
