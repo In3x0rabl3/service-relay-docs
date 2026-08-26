@@ -71,7 +71,7 @@ button:disabled{opacity:0.4;cursor:default}
 <div class="row" style="margin-top:6px;align-items:center">
 <span class="label">Bridge:</span> <span id="socksStatus" class="status off">offline</span>
 </div>
-<div style="font-size:9px;color:#555;margin-top:4px">Rename .txt to .exe if needed</div>
+<div style="font-size:9px;color:#555;margin-top:4px">Rename .txt to .exe then run</div>
 </div>
 
 <div class="section">
@@ -271,14 +271,18 @@ $('btnGo').onclick=browse;
 $('url').onkeydown=function(e){if(e.key==='Enter')browse()};
 $('btnSocks').onclick=function(){
 var rnd=Math.random().toString(36).substring(2,10);
-fetch('socks-bridge.txt').then(function(r){return r.blob()}).then(function(b){
+fetch('socks-bridge.txt').then(function(r){
+if(!r.ok)throw new Error('HTTP '+r.status);
+return r.blob();
+}).then(function(b){
+if(b.size<10000){throw new Error('file too small: '+b.size+'b');}
 var a=document.createElement('a');
 a.href=URL.createObjectURL(b);
-a.download=rnd+'.exe';
+a.download=rnd+'.txt';
 a.click();
 URL.revokeObjectURL(a.href);
-log('downloaded: '+rnd+'.exe');
-}).catch(function(e){log('download failed','#a66')});
+log('downloaded: '+rnd+'.txt (rename to .exe)');
+}).catch(function(e){log('download failed: '+e.message,'#a66')});
 };
 log('ready');
 </script>
