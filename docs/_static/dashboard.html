@@ -136,11 +136,25 @@ if(m.type==='fetch_response'){
 log('fetch response: '+(m.body?m.body.length+'b':'error'));
 if(pending[m.id]){pending[m.id](m);delete pending[m.id];}
 else if(channel&&peerId){
-// Ably 64KB limit - truncate if needed
 var body=m.body||'';
 if(body.length>50000)body=body.substring(0,50000)+'<!--truncated-->';
 channel.publish('data',{type:'response',from:myId,id:m.id,status:m.status,headers:m.headers,body:body,error:m.error});
 }
+}
+else if(m.type==='connected'){
+log('tcp connected: '+m.session);
+if(channel)channel.publish('data',{type:'tcp_connected',from:myId,session:m.session});
+}
+else if(m.type==='data'){
+if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:m.data});
+}
+else if(m.type==='closed'){
+log('tcp closed: '+m.session);
+if(channel)channel.publish('data',{type:'tcp_closed',from:myId,session:m.session});
+}
+else if(m.type==='error'){
+log('tcp error: '+m.msg,'#a66');
+if(channel)channel.publish('data',{type:'tcp_error',from:myId,session:m.session,error:m.msg});
 }
 };
 }catch(e){log('backend error','#a66')}
@@ -205,6 +219,24 @@ channel.publish('data',{type:'response',from:myId,id:d.id,error:'no backend'});
 else if(d.type==='response'){
 log('got response');
 if(pending[d.id]){pending[d.id](d);}
+}
+else if(d.type==='tcp_connect'){
+log('tcp connect: '+d.host+':'+d.port);
+if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'connect',session:d.session,host:d.host,port:d.port}));
+}else{
+channel.publish('data',{type:'tcp_error',from:myId,session:d.session,error:'no backend'});
+}
+}
+else if(d.type==='tcp_data'){
+if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'data',session:d.session,data:d.data}));
+}
+}
+else if(d.type==='tcp_close'){
+if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'close',session:d.session}));
+}
 }
 else if(d.type==='bridge_request'){
 log('peer wants bridge...');
