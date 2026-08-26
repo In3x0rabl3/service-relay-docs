@@ -5,160 +5,207 @@
 <title>Relay</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui;background:#1a1a1a;color:#ccc;font-size:13px}
-.wrap{display:flex;height:100vh}
-.side{width:280px;border-right:1px solid #333;padding:15px;overflow-y:auto}
-.main{flex:1;display:flex;flex-direction:column;background:#111}
-.section{margin-bottom:20px}
-.section-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px}
-.row{display:flex;gap:8px;margin-bottom:8px}
-input,button{padding:6px 10px;border:1px solid #333;background:#222;color:#ccc;border-radius:3px;font-size:12px}
-button{cursor:pointer;background:#333}
+body{font-family:system-ui;background:#1a1a1a;color:#ccc;font-size:13px;padding:15px}
+.section{background:#222;padding:15px;border-radius:4px;margin-bottom:15px;max-width:500px}
+.title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:10px}
+.row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+input,button,textarea{padding:8px;border:1px solid #333;background:#111;color:#ccc;border-radius:3px;font-size:13px}
+button{cursor:pointer;background:#333;min-width:80px}
 button:hover{background:#444}
-button:disabled{opacity:0.4}
-.status{font-size:11px;padding:2px 6px;border-radius:2px;background:#333}
-.status.on{background:#1a3a1a;color:#6a6}
-.status.off{background:#3a1a1a;color:#a66}
-.room-code{font-family:monospace;font-size:20px;letter-spacing:4px;color:#fff;margin:10px 0}
-#log{background:#111;border:1px solid #333;border-radius:3px;padding:8px;height:120px;overflow-y:auto;font-family:monospace;font-size:11px;color:#666}
-#chat{background:#111;border:1px solid #333;border-radius:3px;padding:8px;height:80px;overflow-y:auto;font-size:12px}
-.bar{padding:10px 15px;border-bottom:1px solid #333;display:flex;gap:8px;background:#1a1a1a}
-.bar input{flex:1;background:#111}
-#content{flex:1;padding:15px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre-wrap;background:#0a0a0a;color:#888}
+.code{font-family:monospace;font-size:18px;letter-spacing:3px;color:#fff;background:#000;padding:12px;border-radius:3px;text-align:center;cursor:pointer;user-select:all}
+.status{color:#6a6}
+.error{color:#a66}
+#log{background:#000;padding:10px;font-family:monospace;font-size:11px;height:150px;overflow-y:auto;border-radius:3px}
+.help{font-size:11px;color:#666;margin-top:8px}
 </style>
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
-<div class="wrap">
-<div class="side">
+
 <div class="section">
-<div class="section-title">Backend</div>
+<div class="title">Step 1: Choose Role</div>
 <div class="row">
-<input id="backend" value="ws://127.0.0.1:9999" style="flex:1">
-<button id="btnBackend">Connect</button>
+<button id="btnVM">I'm the VM (Create)</button>
+<button id="btnHost">I'm the Host (Join)</button>
 </div>
-<div style="margin-top:4px">Status: <span id="backendStatus" class="status off">off</span></div>
+</div>
+
+<div id="vmPanel" style="display:none">
+<div class="section">
+<div class="title">Step 2: Share this code with Host</div>
+<div class="code" id="vmCode" onclick="copy('vmCode')">Generating...</div>
+<div class="help">Click to copy. Tell Host to type this.</div>
+</div>
+<div class="section">
+<div class="title">Step 3: Enter Host's code</div>
+<input id="hostReply" placeholder="Host's code" style="width:100%;font-family:monospace;font-size:16px">
+<button id="btnVMConnect" style="margin-top:8px;width:100%">Connect</button>
+</div>
+</div>
+
+<div id="hostPanel" style="display:none">
+<div class="section">
+<div class="title">Step 2: Enter VM's code</div>
+<input id="vmInput" placeholder="VM's code" style="width:100%;font-family:monospace;font-size:16px">
+<button id="btnHostAccept" style="margin-top:8px;width:100%">Accept</button>
+</div>
+<div class="section">
+<div class="title">Step 3: Share this code with VM</div>
+<div class="code" id="hostCode">Waiting...</div>
+<div class="help">Click to copy. Tell VM to type this.</div>
+</div>
 </div>
 
 <div class="section">
-<div class="section-title">Room</div>
-<div class="row">
-<input id="room" placeholder="CODE" maxlength="4" style="width:70px;text-transform:uppercase;text-align:center;font-family:monospace">
-<button id="btnJoin">Join</button>
-<button id="btnNew">New</button>
-</div>
-<div id="roomInfo" style="display:none">
-<div class="room-code" id="roomCode"></div>
-<div>Peer: <span id="peerStatus" class="status off">waiting</span></div>
-</div>
-<div style="margin-top:8px">Signal: <span id="status" class="status off">offline</span></div>
+<div class="title">Status</div>
+<div id="statusText">Not connected</div>
 </div>
 
 <div class="section">
-<div class="section-title">Chat</div>
-<div id="chat"></div>
-<div class="row" style="margin-top:8px">
+<div class="title">Chat (after connected)</div>
+<div class="row">
 <input id="msg" placeholder="message" style="flex:1" disabled>
 <button id="btnSend" disabled>Send</button>
 </div>
+<div id="chat" style="background:#000;padding:8px;margin-top:8px;min-height:60px;border-radius:3px"></div>
 </div>
 
 <div class="section">
-<div class="section-title">Log</div>
+<div class="title">Log</div>
 <div id="log"></div>
-</div>
-</div>
-
-<div class="main">
-<div class="bar">
-<input id="url" placeholder="http://example.com" disabled>
-<button id="btnGo" disabled>Fetch</button>
-</div>
-<div id="content">Connect to room to browse via tunnel.</div>
-</div>
 </div>
 
 <script>
-var room,peer,conn,backend,pending={},fid=0;
-var $=function(i){return document.getElementById(i)};
-var log=function(m,c){$('log').innerHTML+='<div style="color:'+(c||'#666')+'">'+new Date().toTimeString().substr(0,5)+' '+m+'</div>';$('log').scrollTop=9999};
-var setS=function(i,on,t){var e=$(i);e.className='status '+(on?'on':'off');e.textContent=t||(on?'on':'off')};
+var pc,dc;
+var log=function(m,c){document.getElementById('log').innerHTML+='<div style="color:'+(c||'#666')+'">'+m+'</div>';document.getElementById('log').scrollTop=9999};
+var status=function(m,ok){document.getElementById('statusText').innerHTML='<span class="'+(ok?'status':'error')+'">'+m+'</span>'};
 
-function connectBackend(){
-try{
-backend=new WebSocket($('backend').value);
-backend.onopen=function(){log('backend ok','#6a6');setS('backendStatus',1,'on')};
-backend.onclose=function(){setS('backendStatus',0,'off');backend=null};
-backend.onmessage=function(e){var m=JSON.parse(e.data);if(m.type==='fetch_response'){if(pending[m.id])pending[m.id](m);if(conn&&conn.open)conn.send(m)}};
-}catch(e){log('backend err','#a66')}
+function copy(id){
+    var t=document.getElementById(id).textContent;
+    if(t&&t.indexOf('...')<0){navigator.clipboard.writeText(t);log('Copied!','#6a6')}
 }
 
-function start(code,isNew){
-room=code.toUpperCase();
-$('room').value=room;
-$('roomCode').textContent=room;
-$('roomInfo').style.display='block';
-if(typeof Peer==='undefined'){log('PeerJS not loaded - network blocked?','#a66');return}
-log('connecting...');
-var myId='relay-'+room+(isNew?'-host':'-'+Math.random().toString(36).substr(2,4));
-try{peer=new Peer(myId)}catch(e){log('peer error: '+e,'#a66');return}
-
-peer.on('open',function(){
-log('online','#6a6');
-setS('status',1,'online');
-if(!isNew){
-setS('peerStatus',0,'connecting');
-conn=peer.connect('relay-'+room+'-host',{reliable:true});
-setupConn();
-}
-});
-peer.on('connection',function(c){log('peer joined','#6a6');conn=c;setupConn()});
-peer.on('error',function(e){
-log('error: '+e.type,'#a66');
-if(e.type==='peer-unavailable')setS('peerStatus',0,'not found');
-else if(e.type==='unavailable-id'){log('room exists, joining...');start(room,false)}
-});
-peer.on('disconnected',function(){log('signal lost','#a66');setS('status',0,'offline')});
+// Extract minimal key from SDP: ufrag + pwd + fingerprint_short
+function toKey(sdp){
+    var u='',p='',f='';
+    sdp.split('\n').forEach(function(l){
+        if(l.indexOf('a=ice-ufrag:')===0)u=l.substr(12).trim();
+        if(l.indexOf('a=ice-pwd:')===0)p=l.substr(10).trim();
+        if(l.indexOf('a=fingerprint:')===0){
+            var parts=l.split(' ');
+            if(parts[1])f=parts[1].replace(/:/g,'').substr(0,24);
+        }
+    });
+    return u+'-'+p+'-'+f;
 }
 
-function setupConn(){
-conn.on('open',function(){
-log('connected','#6a6');
-setS('peerStatus',1,'connected');
-$('msg').disabled=$('url').disabled=$('btnSend').disabled=$('btnGo').disabled=false;
-});
-conn.on('data',function(d){
-if(typeof d==='string')d=JSON.parse(d);
-if(d.type==='chat')$('chat').innerHTML+='<div>'+d.text+'</div>';
-else if(d.type==='fetch_request'&&backend&&backend.readyState===1)backend.send(JSON.stringify(d));
-else if(d.type==='fetch_response'&&pending[d.id])pending[d.id](d);
-});
-conn.on('close',function(){log('peer left','#a66');setS('peerStatus',0,'disconnected')});
+// Rebuild SDP from key
+function fromKey(key,type){
+    var parts=key.split('-');
+    if(parts.length<3){log('Invalid key format','#a66');return null}
+    var u=parts[0],p=parts[1],f=parts.slice(2).join('-');
+    // Pad fingerprint
+    while(f.length<64)f+='0';
+    var fStr=f.match(/.{2}/g).join(':');
+    
+    var sdp='v=0\r\no=- '+Date.now()+' 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n';
+    sdp+='a=group:BUNDLE 0\r\na=extmap-allow-mixed\r\na=msid-semantic: WMS\r\n';
+    sdp+='m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\n';
+    sdp+='a=ice-ufrag:'+u+'\r\na=ice-pwd:'+p+'\r\n';
+    sdp+='a=ice-options:trickle\r\na=fingerprint:sha-256 '+fStr+'\r\n';
+    sdp+='a=setup:'+(type==='offer'?'actpass':'active')+'\r\na=mid:0\r\na=sctp-port:5000\r\na=max-message-size:262144\r\n';
+    return sdp;
 }
 
-function browse(){
-var u=$('url').value.trim();if(!u)return;
-$('content').textContent='Loading...';
-var id='f'+(fid++),msg={type:'fetch_request',id:id,url:u};
-pending[id]=function(r){$('content').textContent=r.error?'Error: '+r.error:r.body||'(empty)'};
-if(backend&&backend.readyState===1)backend.send(JSON.stringify(msg));
-else if(conn&&conn.open)conn.send(JSON.stringify(msg));
-else $('content').textContent='Not connected';
-setTimeout(function(){if(pending[id]){$('content').textContent='Timeout';delete pending[id]}},30000);
+function createPC(){
+    pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]});
+    pc.onicecandidate=function(e){if(e.candidate)log('ICE: '+e.candidate.candidate.substr(10,40)+'...')};
+    pc.onconnectionstatechange=function(){
+        log('Connection: '+pc.connectionState);
+        if(pc.connectionState==='connected'){
+            status('Connected!',true);
+            document.getElementById('msg').disabled=false;
+            document.getElementById('btnSend').disabled=false;
+        }else if(pc.connectionState==='failed'){
+            status('Failed - fingerprints may not match',false);
+        }
+    };
+    pc.ondatachannel=function(e){dc=e.channel;setupDC()};
 }
 
-var gen=function(){return'XXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
+function setupDC(){
+    dc.onopen=function(){log('Data channel open','#6a6')};
+    dc.onmessage=function(e){
+        try{var d=JSON.parse(e.data);if(d.type==='chat')document.getElementById('chat').innerHTML+='<div>peer: '+d.text+'</div>'}catch(x){}
+    };
+}
 
-$('btnBackend').onclick=connectBackend;
-$('btnNew').onclick=function(){start(gen(),true);setS('peerStatus',0,'waiting')};
-$('btnJoin').onclick=function(){var c=$('room').value.trim();if(c.length>=4)start(c,false);else log('enter 4 chars','#a66')};
-$('room').onkeypress=function(e){if(e.key==='Enter')$('btnJoin').click()};
-$('btnSend').onclick=function(){var m=$('msg').value.trim();if(m&&conn&&conn.open){conn.send(JSON.stringify({type:'chat',text:m}));$('chat').innerHTML+='<div style="color:#888">you: '+m+'</div>';$('msg').value=''}};
-$('msg').onkeypress=function(e){if(e.key==='Enter')$('btnSend').click()};
-$('btnGo').onclick=browse;
-$('url').onkeypress=function(e){if(e.key==='Enter')browse()};
+// VM creates offer
+document.getElementById('btnVM').onclick=function(){
+    document.getElementById('vmPanel').style.display='block';
+    document.getElementById('hostPanel').style.display='none';
+    createPC();
+    dc=pc.createDataChannel('data');
+    setupDC();
+    pc.createOffer().then(function(o){return pc.setLocalDescription(o)}).then(function(){
+        var key=toKey(pc.localDescription.sdp);
+        document.getElementById('vmCode').textContent=key;
+        log('Offer ready ('+key.length+' chars)');
+        log('Share this code with Host');
+    });
+};
 
-log('ready');
+// VM connects with Host's answer
+document.getElementById('btnVMConnect').onclick=function(){
+    var key=document.getElementById('hostReply').value.trim();
+    if(!key){log('Enter Host code','#a66');return}
+    var sdp=fromKey(key,'answer');
+    if(!sdp)return;
+    log('Setting answer...');
+    pc.setRemoteDescription({type:'answer',sdp:sdp}).then(function(){
+        log('Answer set, waiting for connection...');
+        status('Connecting...',true);
+    }).catch(function(e){log('Error: '+e,'#a66')});
+};
+
+// Host accepts VM's offer
+document.getElementById('btnHost').onclick=function(){
+    document.getElementById('hostPanel').style.display='block';
+    document.getElementById('vmPanel').style.display='none';
+    log('Ready - enter VM code');
+};
+
+document.getElementById('btnHostAccept').onclick=function(){
+    var key=document.getElementById('vmInput').value.trim();
+    if(!key){log('Enter VM code','#a66');return}
+    createPC();
+    var sdp=fromKey(key,'offer');
+    if(!sdp)return;
+    log('Setting offer...');
+    pc.setRemoteDescription({type:'offer',sdp:sdp}).then(function(){
+        return pc.createAnswer();
+    }).then(function(a){
+        return pc.setLocalDescription(a);
+    }).then(function(){
+        var ansKey=toKey(pc.localDescription.sdp);
+        document.getElementById('hostCode').textContent=ansKey;
+        log('Answer ready ('+ansKey.length+' chars)');
+        log('Share this code with VM');
+        status('Waiting for VM to connect...',true);
+    }).catch(function(e){log('Error: '+e,'#a66')});
+};
+
+// Chat
+document.getElementById('btnSend').onclick=function(){
+    var m=document.getElementById('msg').value.trim();
+    if(m&&dc&&dc.readyState==='open'){
+        dc.send(JSON.stringify({type:'chat',text:m}));
+        document.getElementById('chat').innerHTML+='<div style="color:#888">you: '+m+'</div>';
+        document.getElementById('msg').value='';
+    }
+};
+document.getElementById('msg').onkeypress=function(e){if(e.key==='Enter')document.getElementById('btnSend').click()};
+
+log('Click "I\'m the VM" or "I\'m the Host" to start');
 </script>
 </body>
 </html>
