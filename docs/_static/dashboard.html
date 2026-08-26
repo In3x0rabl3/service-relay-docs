@@ -189,9 +189,54 @@ $('msg').value='';
 }
 
 function downloadSocks(){
-var script='# SOCKS5 Proxy Client\n# Run: powershell -ExecutionPolicy Bypass -File socks-client.ps1\n# Configure browser SOCKS5 proxy: localhost:7777\n\n$room="'+room+'"\n$port=7777\n\nAdd-Type -AssemblyName System.Net.WebSockets\n$ws=New-Object System.Net.WebSockets.ClientWebSocket\n$ct=[System.Threading.CancellationToken]::None\n$uri="wss://realtime.ably.io/?key=gAgqHA.yZ5GzA:6o4_ysot75A7YNoDEicN23KmBcI3isDJL3uYIUp3Ibg&clientId=socks"\n\nWrite-Host "Connecting to room: $room"\n$ws.ConnectAsync($uri,$ct).Wait()\n\n$sub=\'{"action":10,"channel":"relay-\'+$room+\'"}\'\n$ws.SendAsync([ArraySegment[byte]][Text.Encoding]::UTF8.GetBytes($sub),[Net.WebSockets.WebSocketMessageType]::Text,$true,$ct).Wait()\n\n$hello=\'{"action":15,"channel":"relay-\'+$room+\'","name":"data","data":"{\\"type\\":\\"hello\\",\\"from\\":\\"socks\\"}"}\'\n$ws.SendAsync([ArraySegment[byte]][Text.Encoding]::UTF8.GetBytes($hello),[Net.WebSockets.WebSocketMessageType]::Text,$true,$ct).Wait()\n\n$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$port)\n$listener.Start()\nWrite-Host "SOCKS5 proxy on localhost:$port"\n\nwhile($true){\nif($listener.Pending()){\n$client=$listener.AcceptTcpClient()\n$stream=$client.GetStream()\n$buf=New-Object byte[] 512\n$n=$stream.Read($buf,0,512)\nif($buf[0]-eq5){\n$stream.Write([byte[]](5,0),0,2)\n$n=$stream.Read($buf,0,512)\nif($buf[1]-eq1){\n$atyp=$buf[3]\nif($atyp-eq1){$h="$($buf[4]).$($buf[5]).$($buf[6]).$($buf[7])";$p=$buf[8]*256+$buf[9]}\nelseif($atyp-eq3){$len=$buf[4];$h=[Text.Encoding]::ASCII.GetString($buf,5,$len);$p=$buf[5+$len]*256+$buf[6+$len]}\nWrite-Host "CONNECT $h`:$p"\n$sid="s$(Get-Random)"\n$msg=\'{"action":15,"channel":"relay-\'+$room+\'","name":"data","data":"{\\"type\\":\\"connect\\",\\"from\\":\\"socks\\",\\"sid\\":\\"\'+$sid+\'\\",\\"host\\":\\"\'+$h+\'\\",\\"port\\":\'+$p+\'}"}\'"\n$ws.SendAsync([ArraySegment[byte]][Text.Encoding]::UTF8.GetBytes($msg),[Net.WebSockets.WebSocketMessageType]::Text,$true,$ct).Wait()\n$stream.Write([byte[]](5,0,0,1,0,0,0,0,0,0),0,10)\n}}}}\nStart-Sleep -Milliseconds 50\n}';
+var s=[
+'# SOCKS5 Proxy Client',
+'# Run: powershell -ExecutionPolicy Bypass -File socks-client.ps1',
+'# Configure browser SOCKS5 proxy: localhost:7777',
+'',
+'$room="'+room+'"',
+'$port=7777',
+'$key="gAgqHA.yZ5GzA:6o4_ysot75A7YNoDEicN23KmBcI3isDJL3uYIUp3Ibg"',
+'',
+'Add-Type -AssemblyName System.Net.WebSockets',
+'$ws=New-Object System.Net.WebSockets.ClientWebSocket',
+'$ct=[System.Threading.CancellationToken]::None',
+'',
+'Write-Host "Connecting to room: $room"',
+'$ws.ConnectAsync("wss://realtime.ably.io/?key=$key&clientId=socks",$ct).Wait()',
+'',
+'function Send($m){$ws.SendAsync([ArraySegment[byte]][Text.Encoding]::UTF8.GetBytes($m),[Net.WebSockets.WebSocketMessageType]::Text,$true,$ct).Wait()}',
+'',
+'Send("{`"action`":10,`"channel`":`"relay-$room`"}")',
+'Send("{`"action`":15,`"channel`":`"relay-$room`",`"name`":`"data`",`"data`":`"{\\`"type\\`":\\`"hello\\`",\\`"from\\`":\\`"socks\\`"}`"}")',
+'Write-Host "Joined room, waiting for peer..."',
+'',
+'$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$port)',
+'$listener.Start()',
+'Write-Host "SOCKS5 proxy listening on localhost:$port"',
+'',
+'while($true){',
+'  if($listener.Pending()){',
+'    $c=$listener.AcceptTcpClient();$s=$c.GetStream()',
+'    $b=New-Object byte[] 512;$s.Read($b,0,512)|Out-Null',
+'    if($b[0]-eq5){',
+'      $s.Write([byte[]](5,0),0,2)',
+'      $s.Read($b,0,512)|Out-Null',
+'      if($b[1]-eq1){',
+'        if($b[3]-eq1){$h="$($b[4]).$($b[5]).$($b[6]).$($b[7])";$p=$b[8]*256+$b[9]}',
+'        elseif($b[3]-eq3){$l=$b[4];$h=[Text.Encoding]::ASCII.GetString($b,5,$l);$p=$b[5+$l]*256+$b[6+$l]}',
+'        Write-Host "CONNECT $h`:$p"',
+'        $sid="s$(Get-Random)"',
+'        Send("{`"action`":15,`"channel`":`"relay-$room`",`"name`":`"data`",`"data`":`"{\\`"type\\`":\\`"connect\\`",\\`"from\\`":\\`"socks\\`",\\`"sid\\`":\\`"$sid\\`",\\`"host\\`":\\`"$h\\`",\\`"port\\`":$p}`"}")',
+'        $s.Write([byte[]](5,0,0,1,0,0,0,0,0,0),0,10)',
+'      }',
+'    }',
+'  }',
+'  Start-Sleep -Milliseconds 50',
+'}'
+];
 var a=document.createElement('a');
-a.href='data:text/plain;charset=utf-8,'+encodeURIComponent(script);
+a.href='data:text/plain;charset=utf-8,'+encodeURIComponent(s.join('\r\n'));
 a.download='socks-client.ps1';
 a.click();
 }
