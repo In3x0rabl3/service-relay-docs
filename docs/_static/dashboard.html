@@ -124,36 +124,35 @@ channel.subscribe(function(msg){
 var d=msg.data;
 if(!d||d.from===myId)return;
 
-// Handle different message types
 if(d.type==='hello'){
 peerId=d.from;
-log('peer joined','#6a6');
+log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
 $('msg').disabled=$('url').disabled=$('btnSend').disabled=$('btnGo').disabled=false;
-// Send hello back
-channel.publish('data',{type:'hello',from:myId});
+if(!isNew)channel.publish('data',{type:'hello',from:myId});
 }
-else if(d.type==='chat'&&d.to===myId){
+else if(d.type==='chat'){
 $('chat').innerHTML+='<div>'+d.text+'</div>';
 }
-else if(d.type==='fetch_request'&&d.to===myId){
-// Forward to backend
-if(backend&&backend.readyState===1){
-backend.send(JSON.stringify({type:'fetch_request',id:d.data.id,url:d.data.url}));
+else if(d.type==='fetch_request'){
+if(backend&&backend.readyState===1)backend.send(JSON.stringify({type:'fetch_request',id:d.data.id,url:d.data.url}));
 }
-}
-else if(d.type==='fetch_response'&&d.to===myId){
+else if(d.type==='fetch_response'){
 if(pending[d.data.id])pending[d.data.id](d.data);
 }
 });
 
+// Wait for channel to attach before sending
+channel.on('attached',function(){
+log('room ready');
 if(isNew){
 log('waiting for peer...');
 setS('peerStatus',0,'waiting');
 }else{
-log('joining...');
+log('sending hello...');
 channel.publish('data',{type:'hello',from:myId});
 }
+});
 });
 
 ably.connection.on('failed', function(){log('signal failed','#a66');setS('status',0,'failed')});
