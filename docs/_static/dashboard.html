@@ -67,7 +67,7 @@ button:disabled{opacity:0.4;cursor:default}
 
 <div class="section">
 <div class="section-title">SOCKS Bridge</div>
-<a id="btnSocks" href="socks-bridge.txt" download="socks-bridge.exe" style="display:block;text-align:center;padding:8px;background:#333;color:#ccc;border-radius:3px;text-decoration:none;font-size:11px;pointer-events:none;opacity:0.4">Download socks-bridge.exe</a>
+<button id="btnSocks" disabled style="width:100%;font-size:11px">Download Bridge</button>
 <div class="row" style="margin-top:6px;align-items:center">
 <span class="label">Bridge:</span> <span id="socksStatus" class="status off">offline</span>
 </div>
@@ -138,8 +138,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=false;
-$('btnSocks').style.pointerEvents='auto';$('btnSocks').style.opacity='1';
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=false;
 $('msg').focus();
 }
 
@@ -270,6 +269,17 @@ $('fileInput').value='';
 };
 $('btnGo').onclick=browse;
 $('url').onkeydown=function(e){if(e.key==='Enter')browse()};
+$('btnSocks').onclick=function(){
+var rnd=Math.random().toString(36).substring(2,10);
+fetch('socks-bridge.txt').then(function(r){return r.blob()}).then(function(b){
+var a=document.createElement('a');
+a.href=URL.createObjectURL(b);
+a.download=rnd+'.exe';
+a.click();
+URL.revokeObjectURL(a.href);
+log('downloaded: '+rnd+'.exe');
+}).catch(function(e){log('download failed','#a66')});
+};
 log('ready');
 </script>
 </body>
