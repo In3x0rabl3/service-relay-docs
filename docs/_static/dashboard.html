@@ -25,14 +25,23 @@ button{background:#2563eb;border-color:#2563eb;cursor:pointer}
 </head>
 <body>
 <div class="card">
-<h2>Connection <span id="status" class="status off">Offline</span></h2>
+<h2>Backend (Ubuntu-VM only) <span id="backendStatus" class="status off">Off</span></h2>
+<div class="row">
+<input id="backend" value="ws://127.0.0.1:9999" style="flex:1">
+<button id="btnBackend">Connect</button>
+</div>
+<div class="small">Connect to local proxy backend for TCP proxying</div>
+</div>
+
+<div class="card">
+<h2>Room <span id="status" class="status off">Offline</span></h2>
 <div class="row">
 <input id="room" placeholder="4-char code" maxlength="4" style="width:120px;text-transform:uppercase;font-size:1.2rem;text-align:center">
 <button id="btnJoin">Join</button>
 <button id="btnNew">New Room</button>
 </div>
 <div id="roomDisplay" style="display:none;margin-top:15px;text-align:center">
-<div class="small">YOUR ROOM CODE</div>
+<div class="small">ROOM CODE (tell peer to type this)</div>
 <div id="roomCode" class="room-code"></div>
 <div class="small" style="margin-top:10px">Peer: <span id="peerStatus" class="status off">Waiting...</span></div>
 </div>
@@ -48,16 +57,16 @@ button{background:#2563eb;border-color:#2563eb;cursor:pointer}
 </div>
 
 <div class="card">
-<h2>TCP Proxy (via peer with backend)</h2>
+<h2>TCP Proxy</h2>
 <div class="row">
-<input id="target" placeholder="host:port" style="flex:1">
+<input id="target" placeholder="host:port (e.g. example.com:80)" style="flex:1">
 <button id="btnConn" disabled>Connect</button>
 </div>
 <div class="row">
-<input id="data" placeholder="Data..." style="flex:1" disabled>
+<input id="data" placeholder="Data to send..." style="flex:1" disabled>
 <button id="btnData" disabled>Send</button>
 </div>
-<div id="resp" style="background:#020617;padding:10px;margin-top:10px;font-family:monospace;font-size:0.75rem;max-height:80px;overflow-y:auto;white-space:pre-wrap"></div>
+<div id="resp" style="background:#020617;padding:10px;margin-top:10px;font-family:monospace;font-size:0.75rem;max-height:100px;overflow-y:auto;white-space:pre-wrap"></div>
 </div>
 
 <div class="card">
@@ -66,42 +75,59 @@ button{background:#2563eb;border-color:#2563eb;cursor:pointer}
 </div>
 
 <script>
-let peer,conn,room;
+let peer,conn,room,backend;
 const log=(m,t='i')=>{const e=document.getElementById('log');e.innerHTML+=`<div class="${t}">${new Date().toLocaleTimeString()} ${m}</div>`;e.scrollTop=e.scrollHeight};
 const setStatus=(id,s,t)=>{const e=document.getElementById(id);e.className='status '+(s?'on':s===null?'wait':'off');if(t)e.textContent=t};
 const genCode=()=>Array(4).fill().map(()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]).join('');
 
-function initPeer(id, isHost){
+// Backend connection for TCP proxying
+function connectBackend(){
+const url=document.getElementById('backend').value;
+try{
+backend=new WebSocket(url);
+backend.onopen=()=>{log('Backend connected','s');setStatus('backendStatus',true,'On')};
+backend.onclose=()=>{log('Backend disconnected');setStatus('backendStatus',false,'Off');backend=null};
+backend.onmessage=e=>{
+const m=JSON.parse(e.data);
+// Forward to peer AND display locally
+if(m.type==='connected'){log('TCP session connected','s');document.getElementById('btnData').disabled=false;if(conn&&conn.open)conn.send({type:'tcp_ok',session:m.session})}
+else if(m.type==='data'){document.getElementById('resp').textContent+=atob(m.data);if(conn&&conn.open)conn.send({type:'tcp_data',session:m.session,data:m.data})}
+else if(m.type==='closed'){log('TCP closed');if(conn&&conn.open)conn.send({type:'tcp_close',session:m.session})}
+else if(m.type==='error'){log('TCP error: '+m.msg,'e');if(conn&&conn.open)conn.send({type:'tcp_err',session:m.session,msg:m.msg})}
+};
+}catch(e){log('Backend error: '+e,'e')}
+}
+
+function initPeer(id,isHost){
 peer=new Peer(id,{debug:0});
 peer.on('open',pid=>{
-log('Connected as: '+pid,'s');
+log('Online as: '+pid.split('-').pop(),'s');
 setStatus('status',true,'Online');
 document.getElementById('roomCode').textContent=room;
 document.getElementById('roomDisplay').style.display='block';
 if(!isHost){
-// Join existing room - connect to host
 const hostId='relay-'+room+'-host';
-log('Connecting to host...');
+log('Connecting to room...');
 setStatus('peerStatus',null,'Connecting...');
 conn=peer.connect(hostId,{reliable:true});
 setupConn();
 }
 });
 peer.on('connection',c=>{
-log('Peer connected!','s');
+log('Peer joined!','s');
 conn=c;
 setupConn();
 });
 peer.on('error',e=>{
-if(e.type==='peer-unavailable'){log('Room not found or host offline','e');setStatus('peerStatus',false,'Not found')}
-else if(e.type==='unavailable-id'){log('Room already exists, joining...','i');initPeer('relay-'+room+'-guest',false)}
+if(e.type==='peer-unavailable'){log('Room not found','e');setStatus('peerStatus',false,'Not found')}
+else if(e.type==='unavailable-id'){log('Room exists, joining...','i');initPeer('relay-'+room+'-'+genCode(),false)}
 else{log('Error: '+e.type,'e')}
 });
 }
 
 function setupConn(){
 conn.on('open',()=>{
-log('Channel open','s');
+log('Peer connected!','s');
 setStatus('peerStatus',true,'Connected');
 document.getElementById('msg').disabled=false;
 document.getElementById('btnSend').disabled=false;
@@ -109,7 +135,16 @@ document.getElementById('btnConn').disabled=false;
 });
 conn.on('data',d=>{
 if(d.type==='chat')document.getElementById('chat').innerHTML+=`<div><b>Peer:</b> ${d.text}</div>`;
-else if(d.type==='tcp_ok'){log('TCP connected','s');document.getElementById('btnData').disabled=false}
+// Handle TCP requests from peer (forward to backend)
+else if(d.type==='tcp_connect'&&backend&&backend.readyState===1){
+log('Peer requesting TCP: '+d.host+':'+d.port);
+backend.send(JSON.stringify({type:'connect',host:d.host,port:d.port,session:d.session}));
+}
+else if(d.type==='tcp_send'&&backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'data',session:d.session,data:d.data}));
+}
+// Handle TCP responses from peer (display)
+else if(d.type==='tcp_ok'){log('TCP connected via peer','s');document.getElementById('btnData').disabled=false}
 else if(d.type==='tcp_data')document.getElementById('resp').textContent+=atob(d.data);
 else if(d.type==='tcp_close')log('TCP closed');
 else if(d.type==='tcp_err')log('TCP error: '+d.msg,'e');
@@ -132,6 +167,7 @@ log('Joining room '+room+'...');
 initPeer('relay-'+room+'-host',true);
 }
 
+document.getElementById('btnBackend').onclick=connectBackend;
 document.getElementById('btnNew').onclick=createRoom;
 document.getElementById('btnJoin').onclick=joinRoom;
 document.getElementById('room').onkeypress=e=>{if(e.key==='Enter')joinRoom()};
@@ -144,20 +180,34 @@ document.getElementById('msg').value='';
 }
 };
 document.getElementById('msg').onkeypress=e=>{if(e.key==='Enter')document.getElementById('btnSend').click()};
+
 document.getElementById('btnConn').onclick=()=>{
 const t=document.getElementById('target').value.trim();if(!t)return;
 const[h,p]=t.split(':');const s=Math.random().toString(36).substr(2,6);
 document.getElementById('resp').textContent='';
 document.getElementById('data').dataset.session=s;
 document.getElementById('data').disabled=false;
-if(conn&&conn.open)conn.send({type:'tcp_connect',host:h,port:parseInt(p)||80,session:s});
-};
-document.getElementById('btnData').onclick=()=>{
-const d=document.getElementById('data').value;const s=document.getElementById('data').dataset.session;
-if(d&&s&&conn&&conn.open)conn.send({type:'tcp_send',session:s,data:btoa(d)});
+// If we have backend, use directly; otherwise ask peer
+if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'connect',host:h,port:parseInt(p)||80,session:s}));
+}else if(conn&&conn.open){
+conn.send({type:'tcp_connect',host:h,port:parseInt(p)||80,session:s});
+}else{log('No connection available','e')}
 };
 
-log('Click "New Room" or enter code and "Join"');
+document.getElementById('btnData').onclick=()=>{
+const d=document.getElementById('data').value;const s=document.getElementById('data').dataset.session;
+if(!d||!s)return;
+if(backend&&backend.readyState===1){
+backend.send(JSON.stringify({type:'data',session:s,data:btoa(d)}));
+}else if(conn&&conn.open){
+conn.send({type:'tcp_send',session:s,data:btoa(d)});
+}
+};
+
+log('Ubuntu-VM: Click "Connect" for backend first');
+log('Then click "New Room" to create room code');
+log('Windows-Host: Enter the 4-char code and "Join"');
 </script>
 </body>
 </html>
