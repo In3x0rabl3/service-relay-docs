@@ -26,7 +26,6 @@ button:disabled{opacity:0.4}
 .bar input{flex:1;background:#111}
 #content{flex:1;padding:15px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre-wrap;background:#0a0a0a;color:#888}
 </style>
-<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -79,7 +78,7 @@ button:disabled{opacity:0.4}
 </div>
 
 <script>
-var room,pc,dc,channel,backend,pending={},fid=0,myId;
+var room,pc,dc,ws,backend,pending={},fid=0,myId;
 var $=function(i){return document.getElementById(i)};
 var log=function(m,c){$('log').innerHTML+='<div style="color:'+(c||'#666')+'">'+new Date().toTimeString().substr(0,5)+' '+m+'</div>';$('log').scrollTop=9999};
 var setS=function(i,on,t){var e=$(i);e.className='status '+(on?'on':'off');e.textContent=t||(on?'on':'off')};
@@ -100,36 +99,39 @@ $('room').value=room;
 $('roomCode').textContent=room;
 $('roomInfo').style.display='block';
 
-log('connecting to signal...');
+log('connecting...');
 
-// Use Ably for signaling (same as the-pit)
-var ably=new Ably.Realtime({key:'gAgqHA.yZ5GzA:6o4_ysot75A7YNoDEicN23KmBcI3isDJL3uYIUp3Ibg',clientId:myId});
-ably.connection.on('connected',function(){
+// Use PieSocket free WebSocket
+ws=new WebSocket('wss://free.blr2.piesocket.com/v3/'+room+'?api_key=VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV&notify_self');
+ws.onopen=function(){
 log('signal online','#6a6');
 setS('status',1,'online');
-channel=ably.channels.get('relay-'+room);
-channel.subscribe(function(msg){handleSignal(msg.data)});
 if(isNew){
 log('waiting for peer...');
 setS('peerStatus',0,'waiting');
 }else{
-// Join existing - send hello
-channel.publish('signal',{type:'hello',from:myId});
+log('sending hello...');
+ws.send(JSON.stringify({type:'hello',from:myId}));
 }
-});
-ably.connection.on('failed',function(){log('signal failed','#a66')});
+};
+ws.onclose=function(){log('signal closed');setS('status',0,'offline')};
+ws.onerror=function(){log('signal error','#a66')};
+ws.onmessage=function(e){
+try{
+var data=JSON.parse(e.data);
+if(data.from===myId)return;
+handleSignal(data);
+}catch(err){}
+};
 }
 
 function handleSignal(data){
-if(data.from===myId)return;
 log('signal: '+data.type);
-
 if(data.type==='hello'){
-// Someone joined, initiate WebRTC
 log('peer joined, initiating...','#6a6');
 createPC(true);
 pc.createOffer().then(function(o){return pc.setLocalDescription(o)}).then(function(){
-channel.publish('signal',{type:'offer',from:myId,sdp:pc.localDescription.sdp});
+ws.send(JSON.stringify({type:'offer',from:myId,sdp:pc.localDescription.sdp}));
 });
 }
 else if(data.type==='offer'){
@@ -137,7 +139,7 @@ createPC(false);
 pc.setRemoteDescription({type:'offer',sdp:data.sdp}).then(function(){
 return pc.createAnswer();
 }).then(function(a){return pc.setLocalDescription(a)}).then(function(){
-channel.publish('signal',{type:'answer',from:myId,sdp:pc.localDescription.sdp});
+ws.send(JSON.stringify({type:'answer',from:myId,sdp:pc.localDescription.sdp}));
 });
 }
 else if(data.type==='answer'){
@@ -152,21 +154,16 @@ function createPC(initiator){
 pc=new RTCPeerConnection({iceServers:[
 {urls:'stun:stun.l.google.com:19302'},
 {urls:'stun:stun1.l.google.com:19302'},
-{urls:'stun:stun2.l.google.com:19302'},
 {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
 {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
 {urls:'turns:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'}
-],iceTransportPolicy:'all'});
+]});
 pc.onicecandidate=function(e){
-if(e.candidate){
-log('ice: '+e.candidate.type+' '+e.candidate.protocol);
-if(channel)channel.publish('signal',{type:'ice',from:myId,candidate:e.candidate});
-}else{
-log('ice gathering done');
+if(e.candidate&&ws&&ws.readyState===1){
+ws.send(JSON.stringify({type:'ice',from:myId,candidate:e.candidate}));
 }
 };
-pc.onicecandidateerror=function(e){log('ice err: '+e.errorCode+' '+e.url,'#a66')};
-pc.oniceconnectionstatechange=function(){log('ice conn: '+pc.iceConnectionState)};
+pc.oniceconnectionstatechange=function(){log('ice: '+pc.iceConnectionState)};
 pc.onconnectionstatechange=function(){
 log('rtc: '+pc.connectionState);
 if(pc.connectionState==='connected'){
@@ -216,4 +213,3 @@ log('ready');
 </script>
 </body>
 </html>
-<!-- Wed Aug 26 12:31:11 PM EDT 2026 -->
