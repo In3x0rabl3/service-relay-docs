@@ -67,11 +67,11 @@ button:disabled{opacity:0.4;cursor:default}
 
 <div class="section">
 <div class="section-title">SOCKS Bridge</div>
-<button id="btnSocks" disabled style="width:100%;font-size:11px">Download Bridge Script</button>
+<a id="btnSocks" href="socks-bridge.txt" download="socks-bridge.exe" style="display:block;text-align:center;padding:8px;background:#333;color:#ccc;border-radius:3px;text-decoration:none;font-size:11px;pointer-events:none;opacity:0.4">Download socks-bridge.exe</a>
 <div class="row" style="margin-top:6px;align-items:center">
 <span class="label">Bridge:</span> <span id="socksStatus" class="status off">offline</span>
 </div>
-<div style="font-size:9px;color:#555;margin-top:4px">localhost:7777 SOCKS5 proxy</div>
+<div style="font-size:9px;color:#555;margin-top:4px">Rename .txt to .exe if needed</div>
 </div>
 
 <div class="section">
@@ -138,7 +138,8 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=false;
+$('btnSocks').style.pointerEvents='auto';$('btnSocks').style.opacity='1';
 $('msg').focus();
 }
 
@@ -269,39 +270,6 @@ $('fileInput').value='';
 };
 $('btnGo').onclick=browse;
 $('url').onkeydown=function(e){if(e.key==='Enter')browse()};
-$('btnSocks').onclick=function(){
-var s=[
-'# SOCKS5 Bridge - Run: powershell -ExecutionPolicy Bypass -File bridge.ps1',
-'$port=9998;$socks=7777',
-'Add-Type @"','using System;using System.Net;using System.Net.Sockets;using System.Text;using System.Security.Cryptography;',
-'public class B{TcpListener l;TcpClient c;NetworkStream s;public bool C=>c!=null&&c.Connected;',
-'public B(int p){l=new TcpListener(IPAddress.Loopback,p);}public void S(){l.Start();}public void X(){l.Stop();c?.Close();}',
-'public bool A(){if(!l.Pending())return false;c=l.AcceptTcpClient();s=c.GetStream();var b=new byte[4096];int n=s.Read(b,0,4096);',
-'var r=Encoding.UTF8.GetString(b,0,n);var k="";foreach(var x in r.Split(new[]{"\r\n"},StringSplitOptions.None))if(x.StartsWith("Sec-WebSocket-Key:"))k=x.Substring(19).Trim();',
-'var a=Convert.ToBase64String(SHA1.Create().ComputeHash(Encoding.UTF8.GetBytes(k+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));',
-'var o=Encoding.UTF8.GetBytes("HTTP/1.1 101 Switching Protocols\\r\\nUpgrade:websocket\\r\\nConnection:Upgrade\\r\\nSec-WebSocket-Accept:"+a+"\\r\\n\\r\\n");',
-'s.Write(o,0,o.Length);return true;}',
-'public void W(string m){var d=Encoding.UTF8.GetBytes(m);var f=new byte[2+d.Length];f[0]=0x81;f[1]=(byte)d.Length;Array.Copy(d,0,f,2,d.Length);s.Write(f,0,f.Length);}}',
-'"@',
-'$b=New-Object B($port);$b.S()',
-'Write-Host "Bridge on ws://127.0.0.1:$port - Set as Backend in dashboard"',
-'while(!$b.C){$b.A()|Out-Null;Start-Sleep -Milliseconds 100}',
-'Write-Host "Browser connected!"',
-'$sk=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,$socks);$sk.Start()',
-'Write-Host "SOCKS5 on localhost:$socks"',
-'while(1){if($sk.Pending()){$c=$sk.AcceptTcpClient();$t=$c.GetStream();$x=New-Object byte[] 512;$t.Read($x,0,256)|Out-Null',
-'if($x[0]-eq5){$t.Write([byte[]](5,0),0,2);$t.Read($x,0,256)|Out-Null',
-'if($x[1]-eq1){if($x[3]-eq1){$h="$($x[4]).$($x[5]).$($x[6]).$($x[7])";$p=$x[8]*256+$x[9]}',
-'elseif($x[3]-eq3){$n=$x[4];$h=[Text.Encoding]::ASCII.GetString($x,5,$n);$p=$x[5+$n]*256+$x[6+$n]}',
-'Write-Host "CONNECT $h`:$p";$b.W("{`"type`":`"connect`",`"host`":`"$h`",`"port`":$p}")',
-'$t.Write([byte[]](5,0,0,1,0,0,0,0,0,0),0,10)}}$c.Close()}Start-Sleep -Milliseconds 50}'
-];
-var a=document.createElement('a');
-a.href='data:text/plain,'+encodeURIComponent(s.join('\n'));
-a.download='bridge.ps1';
-a.click();
-};
-
 log('ready');
 </script>
 </body>
