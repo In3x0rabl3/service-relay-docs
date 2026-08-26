@@ -43,9 +43,9 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 <div class="row">
 <input id="backend" value="ws://127.0.0.1:9999" style="flex:1">
 </div>
-<div class="row" style="align-items:center">
+<div class="row">
 <button id="btnBackend">Connect</button>
-<a href="backend.py" download style="font-size:10px;color:#6af;margin-left:8px">Get Script</a>
+<button id="btnGetBackend">Download</button>
 </div>
 <div class="row" style="align-items:center">
 <span class="label">Status:</span> <span id="backendStatus" class="status off">offline</span>
@@ -302,6 +302,13 @@ $('httpOut').style.color='#a66';
 var gen=function(){return'XXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
 
 $('btnBackend').onclick=connectBackend;
+$('btnGetBackend').onclick=function(){
+var a=document.createElement('a');
+a.href='backend.py';
+a.download='backend.py';
+a.click();
+log('downloaded backend.py','#6a6');
+};
 $('btnNew').onclick=function(){joinRoom(gen(),true)};
 $('btnJoin').onclick=function(){var c=$('room').value.trim();if(c.length>=4)joinRoom(c,false);else log('enter 4+ char code','#a66')};
 $('room').onkeydown=function(e){if(e.key==='Enter')$('btnJoin').click()};
