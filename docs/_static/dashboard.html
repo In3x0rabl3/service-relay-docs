@@ -127,8 +127,10 @@ var setS=function(i,on,t){var e=$(i);e.className='status '+(on?'on':'off');e.tex
 function connectBackend(){
 if(backend&&backend.readyState===1){backend.close();return;}
 try{
+log('connecting to '+$('backend').value+'...');
 backend=new WebSocket($('backend').value);
 backend.onopen=function(){log('backend connected','#6a6');setS('backendStatus',1,'online')};
+backend.onerror=function(e){log('backend error','#a66');console.error(e)};
 backend.onclose=function(){setS('backendStatus',0,'offline');backend=null};
 backend.onmessage=function(e){
 var m=JSON.parse(e.data);
