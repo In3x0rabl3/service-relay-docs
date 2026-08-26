@@ -114,8 +114,19 @@ async def handle_client(reader, writer):
         req += c
 
     headers = {}
-    for l in req.decode(errors='ignore').split('\r\n')[1:]:
+    lines = req.decode(errors='ignore').split('\r\n')
+    for l in lines[1:]:
         if ':' in l: k, v = l.split(':', 1); headers[k.lower().strip()] = v.strip()
+
+    # Serve dashboard HTML on GET /
+    if lines[0].startswith('GET / ') or lines[0].startswith('GET /dashboard'):
+        try:
+            with open('dashboard.html', 'rb') as f:
+                html = f.read()
+            writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ' + str(len(html)).encode() + b'\r\n\r\n' + html)
+        except:
+            writer.write(b'HTTP/1.1 404 Not Found\r\n\r\nPut dashboard.html in same directory')
+        await writer.drain(); writer.close(); return
 
     if headers.get('upgrade', '').lower() != 'websocket':
         writer.write(b'HTTP/1.1 400 Bad Request\r\n\r\n')
@@ -160,8 +171,10 @@ async def handle_client(reader, writer):
 async def main():
     server = await asyncio.start_server(handle_client, '127.0.0.1', 9999)
     log.info('=' * 40)
-    log.info('Proxy Backend: ws://127.0.0.1:9999')
+    log.info('Dashboard: http://127.0.0.1:9999/')
+    log.info('WebSocket: ws://127.0.0.1:9999')
     log.info('=' * 40)
+    log.info('Put dashboard.html in same directory')
     async with server: await server.serve_forever()
 
 if __name__ == '__main__':
