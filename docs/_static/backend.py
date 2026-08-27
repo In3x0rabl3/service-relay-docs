@@ -52,10 +52,13 @@ class WS:
 async def handle_fetch(ws, req_id, url, method='GET', headers_str='', body='', timeout=30, follow=True, insecure=True, cookies='', user_agent=''):
     """Fetch a URL and return the response with headers (curl-like)."""
     try:
-        ctx = ssl.create_default_context()
         if insecure:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
+            ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
+        else:
+            ctx = ssl.create_default_context()
 
         hdrs = {'User-Agent': user_agent or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         if cookies:
