@@ -114,27 +114,11 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 <pre id="httpOut" style="margin:0;padding:12px;font-size:11px;color:#6a6;white-space:pre-wrap;word-break:break-all"></pre>
 </div>
 <div class="input-row" style="flex-wrap:wrap">
-<select id="httpMethod" disabled style="width:70px;padding:8px 4px">
-<option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>HEAD</option><option>PATCH</option><option>OPTIONS</option>
-</select>
-<input id="url" placeholder="http://example.com" disabled style="flex:1;min-width:150px">
+<input id="curlCmd" placeholder="curl -X POST -H 'Content-Type: json' -d '{data}' -L -k http://example.com" disabled style="flex:1;min-width:200px;font-size:11px;font-family:monospace">
 <button id="btnGo" disabled>Send</button>
-<button id="btnCopy" disabled title="Copy as curl command" style="font-size:10px">📋</button>
+<button id="btnCopy" disabled title="Copy command" style="font-size:10px">📋</button>
 </div>
-<div class="input-row" style="border-top:none;padding-top:0;flex-wrap:wrap;gap:6px">
-<input id="httpHeaders" placeholder="-H 'Header: value' (comma separated)" disabled style="flex:1;min-width:200px;font-size:10px">
-</div>
-<div class="input-row" style="border-top:none;padding-top:0;flex-wrap:wrap;gap:6px">
-<input id="httpBody" placeholder="-d 'data' or --data-raw 'json'" disabled style="flex:1;min-width:150px;font-size:10px">
-<input id="httpCookies" placeholder="-b 'cookie=value'" disabled style="width:120px;font-size:10px">
-</div>
-<div class="input-row" style="border-top:none;padding-top:0;flex-wrap:wrap;gap:8px;font-size:10px">
-<label style="display:flex;align-items:center;gap:4px;color:#777"><input type="checkbox" id="curlFollow" disabled> -L follow</label>
-<label style="display:flex;align-items:center;gap:4px;color:#777"><input type="checkbox" id="curlInsecure" checked disabled> -k insecure</label>
-<label style="display:flex;align-items:center;gap:4px;color:#777"><input type="checkbox" id="curlVerbose" disabled> -v verbose</label>
-<input id="curlTimeout" placeholder="--timeout 30" disabled style="width:80px;font-size:10px" value="30">
-<input id="curlUserAgent" placeholder="-A 'user-agent'" disabled style="flex:1;min-width:100px;font-size:10px">
-</div>
+<div style="padding:4px 10px;font-size:9px;color:#555">-X method | -H header | -d data | -b cookies | -A agent | -L follow | -k insecure | --timeout N</div>
 </div>
 </div>
 </div>
@@ -204,7 +188,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnCopy').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnPortFwd').disabled=$('httpMethod').disabled=$('httpHeaders').disabled=$('httpBody').disabled=$('httpCookies').disabled=$('curlFollow').disabled=$('curlInsecure').disabled=$('curlVerbose').disabled=$('curlTimeout').disabled=$('curlUserAgent').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('curlCmd').disabled=$('btnGo').disabled=$('btnCopy').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnPortFwd').disabled=false;
 $('msg').focus();
 tryConnectBridge();
 }
@@ -410,14 +394,35 @@ addChat(div);
 $('msg').value='';
 }
 
-function getCurlOpts(){
-var u=$('url').value.trim();if(!u)return null;
-if(!u.startsWith('http'))u='http://'+u;
-return{
-url:u,method:$('httpMethod').value,headers:$('httpHeaders').value.trim(),body:$('httpBody').value,
-cookies:$('httpCookies').value.trim(),follow:$('curlFollow').checked,insecure:$('curlInsecure').checked,
-verbose:$('curlVerbose').checked,timeout:parseInt($('curlTimeout').value)||30,userAgent:$('curlUserAgent').value.trim()
-};
+function parseCurl(cmd){
+cmd=cmd.trim();if(cmd.startsWith('curl '))cmd=cmd.substring(5);
+var o={method:'GET',headers:[],body:'',cookies:'',userAgent:'',follow:false,insecure:false,verbose:false,timeout:30,url:''};
+var tokens=[],cur='',inQ=false,qc='';
+for(var i=0;i<cmd.length;i++){
+var c=cmd[i];
+if(inQ){if(c===qc){inQ=false;}else{cur+=c;}}
+else if(c==='"'||c==="'"){inQ=true;qc=c;}
+else if(c===' '){if(cur){tokens.push(cur);cur='';}}
+else{cur+=c;}
+}
+if(cur)tokens.push(cur);
+for(var i=0;i<tokens.length;i++){
+var t=tokens[i],n=tokens[i+1]||'';
+if(t==='-X'||t==='--request'){o.method=n.toUpperCase();i++;}
+else if(t==='-H'||t==='--header'){o.headers.push(n);i++;}
+else if(t==='-d'||t==='--data'||t==='--data-raw'){o.body=n;i++;}
+else if(t==='-b'||t==='--cookie'){o.cookies=n;i++;}
+else if(t==='-A'||t==='--user-agent'){o.userAgent=n;i++;}
+else if(t==='-L'||t==='--location'){o.follow=true;}
+else if(t==='-k'||t==='--insecure'){o.insecure=true;}
+else if(t==='-v'||t==='--verbose'){o.verbose=true;}
+else if(t==='--timeout'||t==='--connect-timeout'){o.timeout=parseInt(n)||30;i++;}
+else if(t.startsWith('http')||t.startsWith('//')){o.url=t;}
+else if(!t.startsWith('-')&&!o.url){o.url=t;}
+}
+if(!o.url)return null;
+if(!o.url.startsWith('http'))o.url='http://'+o.url;
+return o;
 }
 function buildCurlCmd(o){
 if(!o)return'';
@@ -426,17 +431,16 @@ if(o.insecure)cmd+=' -k';
 if(o.follow)cmd+=' -L';
 if(o.verbose)cmd+=' -v';
 if(o.method!=='GET')cmd+=' -X '+o.method;
-if(o.timeout&&o.timeout!==30)cmd+=' --connect-timeout '+o.timeout;
+if(o.timeout&&o.timeout!==30)cmd+=' --timeout '+o.timeout;
 if(o.userAgent)cmd+=" -A '"+o.userAgent.replace(/'/g,"'\\''")+"'";
 if(o.cookies)cmd+=" -b '"+o.cookies.replace(/'/g,"'\\''")+"'";
-if(o.headers){o.headers.split(',').forEach(function(h){h=h.trim();if(h)cmd+=" -H '"+h.replace(/'/g,"'\\''")+"'";});}
-if(o.body&&(o.method==='POST'||o.method==='PUT'||o.method==='PATCH'))cmd+=" -d '"+o.body.replace(/'/g,"'\\''")+"'";
+o.headers.forEach(function(h){if(h)cmd+=" -H '"+h.replace(/'/g,"'\\''")+"'";});
+if(o.body)cmd+=" -d '"+o.body.replace(/'/g,"'\\''")+"'";
 cmd+=" '"+o.url+"'";
 return cmd;
 }
 function browse(){
-var o=getCurlOpts();if(!o)return;
-$('url').value=o.url;
+var o=parseCurl($('curlCmd').value);if(!o)return;
 $('httpOut').textContent=buildCurlCmd(o)+'\n\nLoading...';
 $('httpOut').style.color='#666';
 log(o.method+': '+o.url.substring(0,30));
@@ -463,18 +467,18 @@ $('httpOut').style.color='#6a6';
 
 if(backend&&backend.readyState===1){
 var req={type:'fetch_request',id:id,url:o.url,method:o.method,timeout:o.timeout,follow:o.follow,insecure:o.insecure};
-if(o.headers)req.headers=o.headers;
+if(o.headers.length)req.headers=o.headers.join(',');
 if(o.cookies)req.cookies=o.cookies;
 if(o.userAgent)req.userAgent=o.userAgent;
-if(o.body&&(o.method==='POST'||o.method==='PUT'||o.method==='PATCH'))req.body=o.body;
+if(o.body)req.body=o.body;
 backend.send(JSON.stringify(req));
 }else if(channel&&peerId){
 log('fetch via peer...');
 var msg={type:'fetch',from:myId,id:id,url:o.url,method:o.method,timeout:o.timeout,follow:o.follow,insecure:o.insecure};
-if(o.headers)msg.headers=o.headers;
+if(o.headers.length)msg.headers=o.headers.join(',');
 if(o.cookies)msg.cookies=o.cookies;
 if(o.userAgent)msg.userAgent=o.userAgent;
-if(o.body&&(o.method==='POST'||o.method==='PUT'||o.method==='PATCH'))msg.body=o.body;
+if(o.body)msg.body=o.body;
 channel.publish('data',msg);
 }else{
 $('httpOut').textContent='Not connected';
@@ -529,8 +533,8 @@ r.readAsDataURL(f);
 $('fileInput').value='';
 };
 $('btnGo').onclick=browse;
-$('btnCopy').onclick=function(){var cmd=buildCurlCmd(getCurlOpts());if(cmd){navigator.clipboard.writeText(cmd).then(function(){log('copied curl command','#6a6');}).catch(function(){log('copy failed','#a66');});}};
-$('url').onkeydown=function(e){if(e.key==='Enter')browse()};
+$('btnCopy').onclick=function(){var cmd=buildCurlCmd(parseCurl($('curlCmd').value));if(cmd){navigator.clipboard.writeText(cmd).then(function(){log('copied curl command','#6a6');}).catch(function(){log('copy failed','#a66');});}};
+$('curlCmd').onkeydown=function(e){if(e.key==='Enter')browse()};
 function downloadViaPeer(reqType,fname,isBin,msg){
 if(!channel||!peerId){log('not connected','#a66');return;}
 var rnd=Math.random().toString(36).substring(2,8);
