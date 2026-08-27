@@ -6,7 +6,6 @@ WebSocket backend for TCP proxying and HTTP fetching.
 import asyncio
 import json
 import base64
-import socket
 import struct
 import hashlib
 import logging
@@ -50,14 +49,17 @@ class WS:
         except: self.closed = True; return None
 
 
-async def handle_fetch(ws, req_id, url, method='GET', headers_str='', body=''):
-    """Fetch a URL and return the response with headers."""
+async def handle_fetch(ws, req_id, url, method='GET', headers_str='', body='', timeout=30, follow=True, insecure=True, cookies='', user_agent=''):
+    """Fetch a URL and return the response with headers (curl-like)."""
     try:
         ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        if insecure:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
 
-        hdrs = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        hdrs = {'User-Agent': user_agent or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        if cookies:
+            hdrs['Cookie'] = cookies
         if headers_str:
             for h in headers_str.split(','):
                 if ':' in h:
@@ -65,19 +67,39 @@ async def handle_fetch(ws, req_id, url, method='GET', headers_str='', body=''):
                     hdrs[k.strip()] = v.strip()
 
         data = body.encode() if body else None
-        req = urllib.request.Request(url, headers=hdrs, method=method, data=data)
+        current_url = url
+        redirects = 0
+        max_redirects = 10 if follow else 0
 
-        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
-            resp_hdrs = '\n'.join(f'{k}: {v}' for k, v in resp.getheaders())
-            resp_body = resp.read(1024*1024).decode('utf-8', errors='replace')
-            await ws.send(json.dumps({
-                'type': 'fetch_response',
-                'id': req_id,
-                'status': resp.status,
-                'headers': resp_hdrs,
-                'body': resp_body
-            }))
-            log.info(f'{method} {url[:50]} -> {resp.status}')
+        while True:
+            req = urllib.request.Request(current_url, headers=hdrs, method=method, data=data if redirects == 0 else None)
+            try:
+                opener = urllib.request.build_opener(urllib.request.HTTPErrorProcessor()) if not follow else None
+                with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                    resp_hdrs = '\n'.join(f'{k}: {v}' for k, v in resp.getheaders())
+                    resp_body = resp.read(1024*1024).decode('utf-8', errors='replace')
+                    await ws.send(json.dumps({
+                        'type': 'fetch_response',
+                        'id': req_id,
+                        'status': resp.status,
+                        'headers': resp_hdrs,
+                        'body': resp_body
+                    }))
+                    log.info(f'{method} {url[:50]} -> {resp.status}')
+                    return
+            except urllib.error.HTTPError as e:
+                if follow and e.code in (301, 302, 303, 307, 308) and redirects < max_redirects:
+                    loc = e.headers.get('Location')
+                    if loc:
+                        if not loc.startswith('http'):
+                            from urllib.parse import urljoin
+                            loc = urljoin(current_url, loc)
+                        current_url = loc
+                        redirects += 1
+                        if e.code == 303:
+                            method = 'GET'
+                        continue
+                raise
     except Exception as e:
         await ws.send(json.dumps({
             'type': 'fetch_response',
@@ -152,6 +174,7 @@ async def handle_client(reader, writer):
 
 async def handle_ws(ws):
     """Handle WebSocket messages from dashboard."""
+    ws_sessions = set()
     try:
         while not ws.closed:
             data = await ws.recv()
@@ -160,21 +183,35 @@ async def handle_ws(ws):
             t = msg.get('type')
 
             if t == 'connect':
-                asyncio.create_task(handle_tcp(ws, msg.get('session') or msg.get('sid'), msg['host'], msg['port']))
+                s = msg.get('session') or msg.get('sid')
+                ws_sessions.add(s)
+                asyncio.create_task(handle_tcp(ws, s, msg['host'], msg['port']))
             elif t == 'data':
                 s = msg.get('session') or msg.get('sid')
                 if s in sessions:
                     sessions[s]['w'].write(base64.b64decode(msg['data']))
                     await sessions[s]['w'].drain()
             elif t == 'fetch_request':
-                asyncio.create_task(handle_fetch(ws, msg['id'], msg['url'], msg.get('method','GET'), msg.get('headers',''), msg.get('body','')))
+                asyncio.create_task(handle_fetch(
+                    ws, msg['id'], msg['url'], msg.get('method','GET'), msg.get('headers',''), msg.get('body',''),
+                    timeout=msg.get('timeout',30), follow=msg.get('follow',True), insecure=msg.get('insecure',True),
+                    cookies=msg.get('cookies',''), user_agent=msg.get('userAgent','')
+                ))
             elif t == 'close':
                 s = msg.get('session') or msg.get('sid')
                 if s in sessions:
                     sessions[s]['w'].close()
                     del sessions[s]
+                ws_sessions.discard(s)
     except Exception as e:
         log.error(f'Error: {e}')
+    finally:
+        for s in list(ws_sessions):
+            if s in sessions:
+                try: sessions[s]['w'].close()
+                except: pass
+                del sessions[s]
+        log.info(f'Cleaned up {len(ws_sessions)} sessions')
 
 
 async def main():

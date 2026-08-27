@@ -109,43 +109,56 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 </div>
 
 <div class="panel">
-<div class="panel-title">HTTP</div>
+<div class="panel-title">cURL</div>
 <div class="panel-content">
 <pre id="httpOut" style="margin:0;padding:12px;font-size:11px;color:#6a6;white-space:pre-wrap;word-break:break-all"></pre>
 </div>
 <div class="input-row" style="flex-wrap:wrap">
 <select id="httpMethod" disabled style="width:70px;padding:8px 4px">
-<option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>HEAD</option><option>PATCH</option>
+<option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>HEAD</option><option>PATCH</option><option>OPTIONS</option>
 </select>
 <input id="url" placeholder="http://example.com" disabled style="flex:1;min-width:150px">
 <button id="btnGo" disabled>Send</button>
+<button id="btnCopy" disabled title="Copy as curl command" style="font-size:10px">📋</button>
 </div>
-<div class="input-row" style="border-top:none;padding-top:0">
-<input id="httpHeaders" placeholder="Headers: Content-Type: application/json" disabled style="flex:1;font-size:10px">
+<div class="input-row" style="border-top:none;padding-top:0;flex-wrap:wrap;gap:6px">
+<input id="httpHeaders" placeholder="-H 'Header: value' (comma separated)" disabled style="flex:1;min-width:200px;font-size:10px">
 </div>
-<div class="input-row" style="border-top:none;padding-top:0">
-<input id="httpBody" placeholder="Body (for POST/PUT/PATCH)" disabled style="flex:1;font-size:10px">
+<div class="input-row" style="border-top:none;padding-top:0;flex-wrap:wrap;gap:6px">
+<input id="httpBody" placeholder="-d 'data' or --data-raw 'json'" disabled style="flex:1;min-width:150px;font-size:10px">
+<input id="httpCookies" placeholder="-b 'cookie=value'" disabled style="width:120px;font-size:10px">
+</div>
+<div class="input-row" style="border-top:none;padding-top:0;flex-wrap:wrap;gap:8px;font-size:10px">
+<label style="display:flex;align-items:center;gap:4px;color:#777"><input type="checkbox" id="curlFollow" disabled> -L follow</label>
+<label style="display:flex;align-items:center;gap:4px;color:#777"><input type="checkbox" id="curlInsecure" checked disabled> -k insecure</label>
+<label style="display:flex;align-items:center;gap:4px;color:#777"><input type="checkbox" id="curlVerbose" disabled> -v verbose</label>
+<input id="curlTimeout" placeholder="--timeout 30" disabled style="width:80px;font-size:10px" value="30">
+<input id="curlUserAgent" placeholder="-A 'user-agent'" disabled style="flex:1;min-width:100px;font-size:10px">
 </div>
 </div>
 </div>
 </div>
 
 <script>
-var room,ably,channel,backend,bridge,pending={},fid=0,myId,peerId=null,connected=false;
+var room,ably,channel,backend,bridge,pending={},fid=0,myId,peerId=null,connected=false,fileChunks={};
 var $=function(i){return document.getElementById(i)};
-var log=function(m,c){$('log').innerHTML+='<div style="color:'+(c||'#555')+'">'+m+'</div>';$('log').scrollTop=9999};
+var log=function(m,c){var l=$('log');var d=document.createElement('div');d.style.color=c||'#555';d.textContent=m;l.appendChild(d);while(l.children.length>100)l.removeChild(l.firstChild);l.scrollTop=9999};
 var setS=function(i,on,t){var e=$(i);e.className='status '+(on?'on':'off');e.textContent=t||(on?'online':'offline')};
+var addChat=function(el){var c=$('chat');c.appendChild(el);while(c.children.length>500)c.removeChild(c.firstChild);c.scrollTop=9999};
+setInterval(function(){var now=Date.now();for(var k in fileChunks){if(now-fileChunks[k].ts>60000){log('file transfer timeout: '+k,'#a66');delete fileChunks[k];}}},10000);
 
+var backendAutoReconnect=false;
 function connectBackend(){
-if(backend&&backend.readyState===1){backend.close();return;}
+if(backend&&backend.readyState===1){backendAutoReconnect=false;backend.close();return;}
+backendAutoReconnect=true;
 try{
 log('connecting to '+$('backend').value+'...');
 backend=new WebSocket($('backend').value);
 backend.onopen=function(){log('backend connected','#6a6');setS('backendStatus',1,'online')};
 backend.onerror=function(e){log('backend error','#a66');console.error(e)};
-backend.onclose=function(){setS('backendStatus',0,'offline');backend=null};
+backend.onclose=function(){setS('backendStatus',0,'offline');backend=null;if(backendAutoReconnect){log('reconnecting in 3s...');setTimeout(connectBackend,3000);}};
 backend.onmessage=function(e){
-var m=JSON.parse(e.data);
+var m;try{m=JSON.parse(e.data);}catch(ex){log('invalid backend msg','#a66');return;}
 if(m.type==='fetch_response'){
 log('fetch response: '+(m.body?m.body.length+'b':'error'));
 if(pending[m.id]){pending[m.id](m);delete pending[m.id];}
@@ -191,7 +204,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnPortFwd').disabled=$('httpMethod').disabled=$('httpHeaders').disabled=$('httpBody').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnCopy').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnPortFwd').disabled=$('httpMethod').disabled=$('httpHeaders').disabled=$('httpBody').disabled=$('httpCookies').disabled=$('curlFollow').disabled=$('curlInsecure').disabled=$('curlVerbose').disabled=$('curlTimeout').disabled=$('curlUserAgent').disabled=false;
 $('msg').focus();
 tryConnectBridge();
 }
@@ -207,7 +220,7 @@ setS('socksStatus',1,'online');
 bridge.onclose=function(){log('bridge closed');setS('socksStatus',0,'offline');bridge=null};
 bridge.onerror=function(e){log('bridge error (normal if no bridge running)');bridge=null};
 bridge.onmessage=function(e){
-var m=JSON.parse(e.data);
+var m;try{m=JSON.parse(e.data);}catch(ex){return;}
 if(m.type==='bridge_init'){
 log('bridge room: '+m.room);
 }else if(m.type==='tcp_connect'){
@@ -276,13 +289,33 @@ setS('socksStatus',1,'online');
 channel.publish('data',{type:'bridge_ack',from:myId});
 }
 else if(d.type==='chat'){
-$('chat').innerHTML+='<div class="msg peer">'+d.text+'</div>';
-$('chat').scrollTop=9999;
+var div=document.createElement('div');div.className='msg peer';div.textContent=d.text;
+addChat(div);
 }
 else if(d.type==='file'){
-var link='<a href="data:'+d.mime+';base64,'+d.data+'" download="'+d.name+'" style="color:#6af">'+d.name+'</a>';
-$('chat').innerHTML+='<div class="msg peer">📎 '+link+' ('+Math.round(d.size/1024)+'KB)</div>';
-$('chat').scrollTop=9999;
+var div=document.createElement('div');div.className='msg peer';
+var a=document.createElement('a');a.href='data:'+(d.mime||'application/octet-stream').replace(/[<>"]/g,'')+';base64,'+d.data;
+a.download=(d.name||'file').replace(/[<>"]/g,'');a.style.color='#6af';a.textContent=d.name||'file';
+div.appendChild(document.createTextNode('📎 '));div.appendChild(a);div.appendChild(document.createTextNode(' ('+Math.round(d.size/1024)+'KB)'));
+addChat(div);
+}
+else if(d.type==='file_chunk'){
+if(!fileChunks[d.id])fileChunks[d.id]={chunks:[],meta:{name:d.name,mime:d.mime,size:d.size,total:d.total},ts:Date.now()};
+fileChunks[d.id].chunks[d.chunk]=d.data;fileChunks[d.id].ts=Date.now();
+var recv=Object.keys(fileChunks[d.id].chunks).length;
+if(recv===d.total){
+var m=fileChunks[d.id].meta;
+var b64=fileChunks[d.id].chunks.join('');
+var div=document.createElement('div');div.className='msg peer';
+var a=document.createElement('a');a.href='data:'+(m.mime||'application/octet-stream').replace(/[<>"]/g,'')+';base64,'+b64;
+a.download=(m.name||'file').replace(/[<>"]/g,'');a.style.color='#6af';a.textContent=m.name||'file';
+div.appendChild(document.createTextNode('📎 '));div.appendChild(a);div.appendChild(document.createTextNode(' ('+Math.round(m.size/1024)+'KB)'));
+addChat(div);
+delete fileChunks[d.id];
+log('file received: '+m.name,'#6a6');
+}else{
+log('file chunk '+recv+'/'+d.total);
+}
 }
 else if(d.type==='fetch'){
 log('peer fetch: '+(d.method||'GET')+' '+d.url.substring(0,25));
@@ -324,84 +357,29 @@ sendToBridge({type:'tcp_closed',session:d.session});
 else if(d.type==='tcp_error'){
 sendToBridge({type:'tcp_error',session:d.session,error:d.error});
 }
-else if(d.type==='bridge_request'){
-log('peer wants bridge...');
-fetch('socks-bridge.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){
+else if(d.type==='bridge_request'||d.type==='bridge_ps1_request'||d.type==='portfwd_request'){
+var cfg={bridge_request:{file:'socks-bridge.txt',name:'bridge',bin:true},bridge_ps1_request:{file:'socks-bridge.ps1',name:'PS1',bin:false},portfwd_request:{file:'port-forward.txt',name:'port-forward',bin:true}}[d.type];
+log('peer wants '+cfg.name+'...');
+fetch(cfg.file+'?t='+Date.now(),{cache:'no-store'}).then(function(r){
 if(!r.ok)throw new Error('HTTP '+r.status);
-return r.arrayBuffer();
-}).then(function(buf){
-// Add random padding to change file hash each time
-var pad=new Uint8Array(256);
-for(var p=0;p<256;p++)pad[p]=Math.floor(Math.random()*256);
-var combined=new Uint8Array(buf.byteLength+256);
-combined.set(new Uint8Array(buf),0);
-combined.set(pad,buf.byteLength);
-var arr=combined;
-var b64='';for(var i=0;i<arr.length;i++)b64+=String.fromCharCode(arr[i]);
-b64=btoa(b64);
-var chunkSize=40000;
-var total=Math.ceil(b64.length/chunkSize);
-log('sending '+total+' chunks ('+Math.round(buf.byteLength/1024)+'KB)');
+return cfg.bin?r.arrayBuffer():r.text();
+}).then(function(data){
+var b64;
+if(cfg.bin){
+var pad=new Uint8Array(256);for(var p=0;p<256;p++)pad[p]=Math.floor(Math.random()*256);
+var combined=new Uint8Array(data.byteLength+256);combined.set(new Uint8Array(data),0);combined.set(pad,data.byteLength);
+var s='';for(var i=0;i<combined.length;i++)s+=String.fromCharCode(combined[i]);b64=btoa(s);
+}else{b64=btoa(data);}
+var chunkSize=40000,total=Math.ceil(b64.length/chunkSize);
+log('sending '+total+' chunks ('+Math.round((cfg.bin?data.byteLength:data.length)/1024)+'KB)');
 var sendChunk=function(c){
 if(c>=total)return;
-var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
-channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:data});
+channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:b64.substring(c*chunkSize,(c+1)*chunkSize)});
 setTimeout(function(){sendChunk(c+1)},150);
 };
 sendChunk(0);
 }).catch(function(e){
-log('bridge error: '+e.message,'#a66');
-channel.publish('data',{type:'response',from:myId,id:d.id,error:e.message});
-});
-}
-else if(d.type==='bridge_ps1_request'){
-log('peer wants PS1 bridge...');
-fetch('socks-bridge.ps1?t='+Date.now(),{cache:'no-store'}).then(function(r){
-if(!r.ok)throw new Error('HTTP '+r.status);
-return r.text();
-}).then(function(text){
-var b64=btoa(text);
-var chunkSize=40000;
-var total=Math.ceil(b64.length/chunkSize);
-log('sending '+total+' chunks ('+Math.round(text.length/1024)+'KB)');
-var sendChunk=function(c){
-if(c>=total)return;
-var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
-channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:data});
-setTimeout(function(){sendChunk(c+1)},150);
-};
-sendChunk(0);
-}).catch(function(e){
-log('PS1 error: '+e.message,'#a66');
-channel.publish('data',{type:'response',from:myId,id:d.id,error:e.message});
-});
-}
-else if(d.type==='portfwd_request'){
-log('peer wants port-forward...');
-fetch('port-forward.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){
-if(!r.ok)throw new Error('HTTP '+r.status);
-return r.arrayBuffer();
-}).then(function(buf){
-var pad=new Uint8Array(256);
-for(var p=0;p<256;p++)pad[p]=Math.floor(Math.random()*256);
-var combined=new Uint8Array(buf.byteLength+256);
-combined.set(new Uint8Array(buf),0);
-combined.set(pad,buf.byteLength);
-var arr=combined;
-var b64='';for(var i=0;i<arr.length;i++)b64+=String.fromCharCode(arr[i]);
-b64=btoa(b64);
-var chunkSize=40000;
-var total=Math.ceil(b64.length/chunkSize);
-log('sending '+total+' chunks ('+Math.round(buf.byteLength/1024)+'KB)');
-var sendChunk=function(c){
-if(c>=total)return;
-var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
-channel.publish('data',{type:'response',from:myId,id:d.id,chunk:c,total:total,data:data});
-setTimeout(function(){sendChunk(c+1)},150);
-};
-sendChunk(0);
-}).catch(function(e){
-log('port-forward error: '+e.message,'#a66');
+log(cfg.name+' error: '+e.message,'#a66');
 channel.publish('data',{type:'response',from:myId,id:d.id,error:e.message});
 });
 }
@@ -419,37 +397,63 @@ channel.publish('data',{type:'hello',from:myId});
 });
 
 ably.connection.on('failed',function(){log('connection failed','#a66');setS('status',0,'failed')});
+ably.connection.on('disconnected',function(){log('signal disconnected, reconnecting...','#a66');setS('status',0,'reconnecting')});
+ably.connection.on('suspended',function(){log('signal suspended','#a66');setS('status',0,'suspended')});
 }
 
 function sendChat(){
 var t=$('msg').value.trim();
 if(!t||!channel||!peerId)return;
 channel.publish('data',{type:'chat',from:myId,text:t});
-$('chat').innerHTML+='<div class="msg you">'+t+'</div>';
-$('chat').scrollTop=9999;
+var div=document.createElement('div');div.className='msg you';div.textContent=t;
+addChat(div);
 $('msg').value='';
 }
 
-function browse(){
-var u=$('url').value.trim();
-if(!u)return;
+function getCurlOpts(){
+var u=$('url').value.trim();if(!u)return null;
 if(!u.startsWith('http'))u='http://'+u;
-$('url').value=u;
-var method=$('httpMethod').value;
-var hdrs=$('httpHeaders').value.trim();
-var body=$('httpBody').value;
-$('httpOut').textContent=method+' '+u+'\n\nLoading...';
+return{
+url:u,method:$('httpMethod').value,headers:$('httpHeaders').value.trim(),body:$('httpBody').value,
+cookies:$('httpCookies').value.trim(),follow:$('curlFollow').checked,insecure:$('curlInsecure').checked,
+verbose:$('curlVerbose').checked,timeout:parseInt($('curlTimeout').value)||30,userAgent:$('curlUserAgent').value.trim()
+};
+}
+function buildCurlCmd(o){
+if(!o)return'';
+var cmd='curl';
+if(o.insecure)cmd+=' -k';
+if(o.follow)cmd+=' -L';
+if(o.verbose)cmd+=' -v';
+if(o.method!=='GET')cmd+=' -X '+o.method;
+if(o.timeout&&o.timeout!==30)cmd+=' --connect-timeout '+o.timeout;
+if(o.userAgent)cmd+=" -A '"+o.userAgent.replace(/'/g,"'\\''")+"'";
+if(o.cookies)cmd+=" -b '"+o.cookies.replace(/'/g,"'\\''")+"'";
+if(o.headers){o.headers.split(',').forEach(function(h){h=h.trim();if(h)cmd+=" -H '"+h.replace(/'/g,"'\\''")+"'";});}
+if(o.body&&(o.method==='POST'||o.method==='PUT'||o.method==='PATCH'))cmd+=" -d '"+o.body.replace(/'/g,"'\\''")+"'";
+cmd+=" '"+o.url+"'";
+return cmd;
+}
+function browse(){
+var o=getCurlOpts();if(!o)return;
+$('url').value=o.url;
+$('httpOut').textContent=buildCurlCmd(o)+'\n\nLoading...';
 $('httpOut').style.color='#666';
-log(method+': '+u.substring(0,30));
+log(o.method+': '+o.url.substring(0,30));
 
 var id='f'+(fid++);
+var done=false;
+var tms=(o.timeout||30)*1000+5000;
+var tmr=setTimeout(function(){if(!done){done=true;delete pending[id];$('httpOut').textContent='ERROR: Request timeout';$('httpOut').style.color='#a66';log('request timeout','#a66');}},tms);
 
 pending[id]=function(r){
+if(done)return;done=true;clearTimeout(tmr);
+var cmd=buildCurlCmd(o)+'\n\n';
 if(r.error){
-$('httpOut').textContent='ERROR: '+r.error;
+$('httpOut').textContent=cmd+'ERROR: '+r.error;
 $('httpOut').style.color='#a66';
 }else{
-var out='HTTP '+(r.status||'?')+'\n';
+var out=cmd+'HTTP '+(r.status||'?')+'\n';
 if(r.headers)out+=r.headers+'\n';
 out+='\n'+(r.body||'');
 $('httpOut').textContent=out;
@@ -458,15 +462,19 @@ $('httpOut').style.color='#6a6';
 };
 
 if(backend&&backend.readyState===1){
-var req={type:'fetch_request',id:id,url:u,method:method};
-if(hdrs)req.headers=hdrs;
-if(body&&(method==='POST'||method==='PUT'||method==='PATCH'))req.body=body;
+var req={type:'fetch_request',id:id,url:o.url,method:o.method,timeout:o.timeout,follow:o.follow,insecure:o.insecure};
+if(o.headers)req.headers=o.headers;
+if(o.cookies)req.cookies=o.cookies;
+if(o.userAgent)req.userAgent=o.userAgent;
+if(o.body&&(o.method==='POST'||o.method==='PUT'||o.method==='PATCH'))req.body=o.body;
 backend.send(JSON.stringify(req));
 }else if(channel&&peerId){
 log('fetch via peer...');
-var msg={type:'fetch',from:myId,id:id,url:u,method:method};
-if(hdrs)msg.headers=hdrs;
-if(body&&(method==='POST'||method==='PUT'||method==='PATCH'))msg.body=body;
+var msg={type:'fetch',from:myId,id:id,url:o.url,method:o.method,timeout:o.timeout,follow:o.follow,insecure:o.insecure};
+if(o.headers)msg.headers=o.headers;
+if(o.cookies)msg.cookies=o.cookies;
+if(o.userAgent)msg.userAgent=o.userAgent;
+if(o.body&&(o.method==='POST'||o.method==='PUT'||o.method==='PATCH'))msg.body=o.body;
 channel.publish('data',msg);
 }else{
 $('httpOut').textContent='Not connected';
@@ -493,107 +501,70 @@ $('msg').onkeydown=function(e){if(e.key==='Enter')sendChat()};
 $('btnFile').onclick=function(){$('fileInput').click()};
 $('fileInput').onchange=function(){
 var f=this.files[0];if(!f||!channel||!peerId)return;
-if(f.size>5*1024*1024){alert('Max file size: 5MB');return;}
+if(f.size>1024*1024*1024){alert('Max file size: 1GB');return;}
 var r=new FileReader();
 r.onload=function(){
 var b64=r.result.split(',')[1];
+var chunkSize=40000;
+if(b64.length<=chunkSize){
 channel.publish('data',{type:'file',from:myId,name:f.name,mime:f.type||'application/octet-stream',size:f.size,data:b64});
-$('chat').innerHTML+='<div class="msg you">📎 '+f.name+' ('+Math.round(f.size/1024)+'KB) sent</div>';
-$('chat').scrollTop=9999;
+}else{
+var fileId='f'+Date.now();
+var total=Math.ceil(b64.length/chunkSize);
+var sizeMB=Math.round(f.size/1024/1024);
+log('sending '+sizeMB+'MB file ('+total+' chunks)...');
+var sendChunk=function(c){
+if(c>=total){log('file sent: '+f.name,'#6a6');return;}
+var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
+channel.publish('data',{type:'file_chunk',from:myId,id:fileId,name:f.name,mime:f.type||'application/octet-stream',size:f.size,chunk:c,total:total,data:data});
+if(c%50===0)log('uploading '+Math.round((c/total)*100)+'%');
+setTimeout(function(){sendChunk(c+1)},75);
+};
+sendChunk(0);
+}
+var div=document.createElement('div');div.className='msg you';div.textContent='📎 '+f.name+' ('+Math.round(f.size/1024)+'KB) sent';
+addChat(div);
 };
 r.readAsDataURL(f);
 $('fileInput').value='';
 };
 $('btnGo').onclick=browse;
+$('btnCopy').onclick=function(){var cmd=buildCurlCmd(getCurlOpts());if(cmd){navigator.clipboard.writeText(cmd).then(function(){log('copied curl command','#6a6');}).catch(function(){log('copy failed','#a66');});}};
 $('url').onkeydown=function(e){if(e.key==='Enter')browse()};
-$('btnSocks').onclick=function(){
+function downloadViaPeer(reqType,fname,isBin,msg){
 if(!channel||!peerId){log('not connected','#a66');return;}
 var rnd=Math.random().toString(36).substring(2,8);
-log('requesting bridge via peer...');
-var id='dl'+(fid++);
-var chunks=[];
+fname=fname.replace('RND',rnd);
+log(msg);
+var id='dl'+(fid++),chunks=[],lastT=Date.now(),tmr=null,done=false;
+function chkTimeout(){
+if(done)return;
+if(Date.now()-lastT>30000){log('timeout - no data 30s','#a66');delete pending[id];done=true;return;}
+tmr=setTimeout(chkTimeout,5000);
+}
+tmr=setTimeout(chkTimeout,5000);
 pending[id]=function(r){
-if(r.error){log('failed: '+r.error,'#a66');return;}
+if(done)return;
+if(r.error){log('failed: '+r.error,'#a66');clearTimeout(tmr);done=true;return;}
 if(r.chunk!==undefined){
-chunks[r.chunk]=r.data;
-log('chunk '+(r.chunk+1)+'/'+r.total);
+chunks[r.chunk]=r.data;lastT=Date.now();
+var pct=Math.round((Object.keys(chunks).length/r.total)*100);
+log('downloading '+pct+'% ('+Object.keys(chunks).length+'/'+r.total+')');
 if(Object.keys(chunks).length===r.total){
-var b64=chunks.join('');
-var bin=atob(b64);
-var arr=new Uint8Array(bin.length);
-for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
-var blob=new Blob([arr],{type:'application/octet-stream'});
-var a=document.createElement('a');
-a.href=URL.createObjectURL(blob);
-a.download=rnd+'.txt';
-document.body.appendChild(a);
-a.click();
-document.body.removeChild(a);
-log('saved '+rnd+'.txt ('+Math.round(blob.size/1024)+'KB) - rename to .exe','#6a6');
+clearTimeout(tmr);done=true;
+var b64=chunks.join(''),bin=atob(b64),blob;
+if(isBin){var arr=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);blob=new Blob([arr],{type:'application/octet-stream'});}
+else{blob=new Blob([bin],{type:'text/plain'});}
+var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;
+document.body.appendChild(a);a.click();document.body.removeChild(a);
+log('saved '+fname+' ('+Math.round(blob.size/1024)+'KB)'+(isBin?' - rename to .exe':''),'#6a6');
 delete pending[id];
+}}};
+channel.publish('data',{type:reqType,from:myId,id:id});
 }
-}
-};
-channel.publish('data',{type:'bridge_request',from:myId,id:id});
-};
-$('btnSocksPs').onclick=function(){
-if(!channel||!peerId){log('not connected','#a66');return;}
-var rnd=Math.random().toString(36).substring(2,8);
-log('requesting PS1 bridge via peer...');
-var id='ps'+(fid++);
-var chunks=[];
-pending[id]=function(r){
-if(r.error){log('failed: '+r.error,'#a66');return;}
-if(r.chunk!==undefined){
-chunks[r.chunk]=r.data;
-log('chunk '+(r.chunk+1)+'/'+r.total);
-if(Object.keys(chunks).length===r.total){
-var b64=chunks.join('');
-var bin=atob(b64);
-var blob=new Blob([bin],{type:'text/plain'});
-var a=document.createElement('a');
-a.href=URL.createObjectURL(blob);
-a.download='socks-bridge.ps1';
-document.body.appendChild(a);
-a.click();
-document.body.removeChild(a);
-log('saved socks-bridge.ps1 ('+Math.round(blob.size/1024)+'KB)','#6a6');
-delete pending[id];
-}
-}
-};
-channel.publish('data',{type:'bridge_ps1_request',from:myId,id:id});
-};
-$('btnPortFwd').onclick=function(){
-if(!channel||!peerId){log('not connected','#a66');return;}
-var rnd=Math.random().toString(36).substring(2,8);
-log('requesting port-forward via peer...');
-var id='pf'+(fid++);
-var chunks=[];
-pending[id]=function(r){
-if(r.error){log('failed: '+r.error,'#a66');return;}
-if(r.chunk!==undefined){
-chunks[r.chunk]=r.data;
-log('chunk '+(r.chunk+1)+'/'+r.total);
-if(Object.keys(chunks).length===r.total){
-var b64=chunks.join('');
-var bin=atob(b64);
-var arr=new Uint8Array(bin.length);
-for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
-var blob=new Blob([arr],{type:'application/octet-stream'});
-var a=document.createElement('a');
-a.href=URL.createObjectURL(blob);
-a.download='pf-'+rnd+'.txt';
-document.body.appendChild(a);
-a.click();
-document.body.removeChild(a);
-log('saved pf-'+rnd+'.txt - rename to .exe','#6a6');
-delete pending[id];
-}
-}
-};
-channel.publish('data',{type:'portfwd_request',from:myId,id:id});
-};
+$('btnSocks').onclick=function(){downloadViaPeer('bridge_request','RND.txt',true,'requesting bridge...');};
+$('btnSocksPs').onclick=function(){downloadViaPeer('bridge_ps1_request','socks-bridge.ps1',false,'requesting PS1 bridge...');};
+$('btnPortFwd').onclick=function(){downloadViaPeer('portfwd_request','pf-RND.txt',true,'requesting port-forward...');};
 log('ready');
 </script>
 </body>
