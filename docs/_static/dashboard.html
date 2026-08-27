@@ -85,10 +85,9 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 <div class="section">
 <div class="section-title">Port Forward</div>
 <div class="row">
-<button id="btnPortFwdHost" disabled style="flex:1;font-size:11px">Host</button>
-<button id="btnPortFwdTarget" disabled style="flex:1;font-size:11px">Target</button>
+<button id="btnPortFwd" disabled style="flex:1;font-size:11px">Download</button>
 </div>
-<div style="font-size:9px;color:#555;margin-top:4px">host: WS server | target: WS client</div>
+<div style="font-size:9px;color:#555;margin-top:4px">server/client modes</div>
 </div>
 
 <div class="section">
@@ -192,7 +191,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnPortFwdHost').disabled=$('btnPortFwdTarget').disabled=$('httpMethod').disabled=$('httpHeaders').disabled=$('httpBody').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('url').disabled=$('btnGo').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnPortFwd').disabled=$('httpMethod').disabled=$('httpHeaders').disabled=$('httpBody').disabled=false;
 $('msg').focus();
 tryConnectBridge();
 }
@@ -565,10 +564,10 @@ delete pending[id];
 };
 channel.publish('data',{type:'bridge_ps1_request',from:myId,id:id});
 };
-function downloadPortFwd(name){
+$('btnPortFwd').onclick=function(){
 if(!channel||!peerId){log('not connected','#a66');return;}
 var rnd=Math.random().toString(36).substring(2,8);
-log('requesting '+name+' via peer...');
+log('requesting port-forward via peer...');
 var id='pf'+(fid++);
 var chunks=[];
 pending[id]=function(r){
@@ -584,19 +583,17 @@ for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
 var blob=new Blob([arr],{type:'application/octet-stream'});
 var a=document.createElement('a');
 a.href=URL.createObjectURL(blob);
-a.download=name+'-'+rnd+'.txt';
+a.download='pf-'+rnd+'.txt';
 document.body.appendChild(a);
 a.click();
 document.body.removeChild(a);
-log('saved '+name+'-'+rnd+'.txt - rename to .exe','#6a6');
+log('saved pf-'+rnd+'.txt - rename to .exe','#6a6');
 delete pending[id];
 }
 }
 };
 channel.publish('data',{type:'portfwd_request',from:myId,id:id});
-}
-$('btnPortFwdHost').onclick=function(){downloadPortFwd('pf-host');};
-$('btnPortFwdTarget').onclick=function(){downloadPortFwd('pf-target');};
+};
 log('ready');
 </script>
 </body>
