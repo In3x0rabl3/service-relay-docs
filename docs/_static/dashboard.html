@@ -74,6 +74,7 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 <div class="row">
 <button id="btnSocks" disabled style="flex:1;font-size:11px">EXE</button>
 <button id="btnSocksPs" disabled style="flex:1;font-size:11px">PS1</button>
+<button id="btnSocksPy" disabled style="flex:1;font-size:11px">PY</button>
 <button id="btnBridge" style="flex:1;font-size:11px">Connect</button>
 </div>
 <div class="row" style="margin-top:6px;align-items:center">
@@ -188,7 +189,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('curlCmd').disabled=$('btnGo').disabled=$('btnCopy').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnPortFwd').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('curlCmd').disabled=$('btnGo').disabled=$('btnCopy').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnSocksPy').disabled=$('btnPortFwd').disabled=false;
 $('msg').focus();
 tryConnectBridge();
 }
@@ -341,8 +342,8 @@ sendToBridge({type:'tcp_closed',session:d.session});
 else if(d.type==='tcp_error'){
 sendToBridge({type:'tcp_error',session:d.session,error:d.error});
 }
-else if(d.type==='bridge_request'||d.type==='bridge_ps1_request'||d.type==='portfwd_request'){
-var cfg={bridge_request:{file:'socks-bridge.txt',name:'bridge',bin:true},bridge_ps1_request:{file:'socks-bridge.ps1',name:'PS1',bin:false},portfwd_request:{file:'port-forward.txt',name:'port-forward',bin:true}}[d.type];
+else if(d.type==='bridge_request'||d.type==='bridge_ps1_request'||d.type==='bridge_py_request'||d.type==='portfwd_request'){
+var cfg={bridge_request:{file:'socks-bridge.txt',name:'bridge',bin:true},bridge_ps1_request:{file:'socks-bridge.ps1',name:'PS1',bin:false},bridge_py_request:{file:'socks-bridge.py',name:'PY',bin:false},portfwd_request:{file:'port-forward.txt',name:'port-forward',bin:true}}[d.type];
 log('peer wants '+cfg.name+'...');
 fetch(cfg.file+'?t='+Date.now(),{cache:'no-store'}).then(function(r){
 if(!r.ok)throw new Error('HTTP '+r.status);
@@ -568,6 +569,7 @@ channel.publish('data',{type:reqType,from:myId,id:id});
 }
 $('btnSocks').onclick=function(){downloadViaPeer('bridge_request','RND.txt',true,'requesting bridge...');};
 $('btnSocksPs').onclick=function(){downloadViaPeer('bridge_ps1_request','socks-bridge.ps1',false,'requesting PS1 bridge...');};
+$('btnSocksPy').onclick=function(){downloadViaPeer('bridge_py_request','socks-bridge.py',false,'requesting Python bridge...');};
 $('btnPortFwd').onclick=function(){downloadViaPeer('portfwd_request','pf-RND.txt',true,'requesting port-forward...');};
 log('ready');
 </script>
