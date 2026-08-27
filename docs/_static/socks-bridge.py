@@ -11,6 +11,10 @@ import hashlib
 import struct
 import sys
 import time
+import platform
+import subprocess
+import atexit
+import signal
 
 BRIDGE_PORT = 9998
 SOCKS_PORT = 1080
@@ -20,6 +24,40 @@ browser_ws = None
 sessions = {}
 connect_waiters = {}
 ready_event = asyncio.Event()
+revocation_was_on = False
+
+def disable_revocation_check():
+    """Disable Windows SSL revocation check to fix CRYPT_E_REVOCATION_OFFLINE."""
+    global revocation_was_on
+    if platform.system() != 'Windows':
+        return
+    try:
+        result = subprocess.run(
+            ['reg', 'query', r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings', '/v', 'CertificateRevocation'],
+            capture_output=True, text=True
+        )
+        if '0x1' in result.stdout:
+            revocation_was_on = True
+        subprocess.run(
+            ['reg', 'add', r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings', '/v', 'CertificateRevocation', '/t', 'REG_DWORD', '/d', '0', '/f'],
+            capture_output=True
+        )
+        print("SSL revocation check disabled (fixes HTTPS errors)")
+    except Exception:
+        pass
+
+def restore_revocation_check():
+    """Restore Windows SSL revocation check on exit."""
+    if platform.system() != 'Windows' or not revocation_was_on:
+        return
+    try:
+        subprocess.run(
+            ['reg', 'add', r'HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings', '/v', 'CertificateRevocation', '/t', 'REG_DWORD', '/d', '1', '/f'],
+            capture_output=True
+        )
+        print("SSL revocation check restored")
+    except Exception:
+        pass
 
 class WebSocketServer:
     def __init__(self, reader, writer):
@@ -286,6 +324,10 @@ async def main():
     print("Usage: python3 socks-bridge.py <ROOM> [local]")
     print("  local - listen on 127.0.0.1 only (default: 0.0.0.0)")
     print()
+
+    # Disable Windows SSL revocation check (fixes CRYPT_E_REVOCATION_OFFLINE)
+    disable_revocation_check()
+    atexit.register(restore_revocation_check)
 
     listen_addr = "0.0.0.0"
 
