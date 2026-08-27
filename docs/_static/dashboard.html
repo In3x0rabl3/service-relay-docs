@@ -239,9 +239,12 @@ bridge.send(JSON.stringify(msg));
 }
 
 function joinRoom(code,isNew){
+if(channel){try{channel.unsubscribe();}catch(e){}}
+if(ably){try{ably.close();}catch(e){}}
 room=code.toUpperCase();
 myId=Math.random().toString(36).substr(2,8);
 connected=false;
+peerId=null;
 $('room').value=room;
 $('roomCode').textContent=room;
 $('roomInfo').style.display='block';
@@ -254,9 +257,12 @@ key:'gAgqHA.yZ5GzA:6o4_ysot75A7YNoDEicN23KmBcI3isDJL3uYIUp3Ibg',
 clientId:myId
 });
 
+var subscribed=false;
 ably.connection.on('connected',function(){
 log('signal online','#6a6');
 setS('status',1,'online');
+if(subscribed)return;
+subscribed=true;
 
 channel=ably.channels.get('relay-'+room);
 channel.subscribe(function(msg){
