@@ -12,6 +12,7 @@ import logging
 import urllib.request
 import urllib.error
 import ssl
+import os
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 log = logging.getLogger('proxy')
@@ -158,9 +159,12 @@ async def handle_client(reader, writer):
 
     # Serve static files
     if lines[0].startswith('GET '):
-        path = lines[0].split(' ')[1].lstrip('/')
+        path = lines[0].split(' ')[1].split('?')[0].lstrip('/')
         if not path or path == 'dashboard': path = 'dashboard.html'
-        if path in ('dashboard.html', 'socks-bridge.txt', 'socks-bridge.ps1', 'port-forward.txt', 'backend.py'):
+        # Sanitize path - prevent traversal
+        path = os.path.basename(path)
+        ALLOWED_FILES = {'dashboard.html', 'socks-bridge.txt', 'socks-bridge.ps1', 'socks-bridge.py', 'port-forward.txt', 'backend.py'}
+        if path in ALLOWED_FILES:
             try:
                 with open(path, 'rb') as f:
                     data = f.read()

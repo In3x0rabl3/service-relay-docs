@@ -11,6 +11,7 @@ import hashlib
 import struct
 import sys
 import time
+import os
 import platform
 import subprocess
 import atexit
@@ -250,7 +251,7 @@ async def handle_socks(reader, writer):
 
         print(f"CONNECT {host}:{port}")
 
-        sid = f"s{int(time.time()*1000) % 1000000}"
+        sid = f"s{hashlib.sha256(os.urandom(8)).hexdigest()[:8]}"
 
         waiter = asyncio.get_event_loop().create_future()
         connect_waiters[sid] = waiter
