@@ -518,7 +518,7 @@ if(f.size>1024*1024*1024){alert('Max file size: 1GB');return;}
 var r=new FileReader();
 r.onload=function(){
 var b64=r.result.split(',')[1];
-var chunkSize=40000;
+var chunkSize=10000;
 if(b64.length<=chunkSize){
 channel.publish('data',{type:'file',from:myId,name:f.name,mime:f.type||'application/octet-stream',size:f.size,data:b64});
 }else{
