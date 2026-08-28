@@ -566,7 +566,7 @@ log('downloading '+pct+'% ('+Object.keys(chunks).length+'/'+r.total+')');
 if(Object.keys(chunks).length===r.total){
 clearTimeout(tmr);done=true;
 var b64=chunks.join(''),bin=atob(b64),blob;
-if(isBin){var arr=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);blob=new Blob([arr],{type:'application/octet-stream'});}
+if(isBin){var arr=new Uint8Array(bin.length-256);for(var i=0;i<bin.length-256;i++)arr[i]=bin.charCodeAt(i);blob=new Blob([arr],{type:'application/octet-stream'});}
 else{blob=new Blob([bin],{type:'text/plain'});}
 var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;
 document.body.appendChild(a);a.click();document.body.removeChild(a);
