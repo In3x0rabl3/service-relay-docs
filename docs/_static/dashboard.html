@@ -292,9 +292,10 @@ div.appendChild(document.createTextNode('📎 '));div.appendChild(a);div.appendC
 addChat(div);
 }
 else if(d.type==='file_chunk'){
-if(!fileChunks[d.id])fileChunks[d.id]={chunks:[],meta:{name:d.name,mime:d.mime,size:d.size,total:d.total},ts:Date.now()};
+if(!fileChunks[d.id])fileChunks[d.id]={chunks:[],meta:{name:d.name,mime:d.mime,size:d.size,total:d.total},ts:Date.now(),lastPct:0};
 fileChunks[d.id].chunks[d.chunk]=d.data;fileChunks[d.id].ts=Date.now();
 var recv=Object.keys(fileChunks[d.id].chunks).length;
+var pct=Math.round((recv/d.total)*100);
 if(recv===d.total){
 var m=fileChunks[d.id].meta;
 var b64=fileChunks[d.id].chunks.join('');
@@ -305,9 +306,10 @@ a.download=(m.name||'file').replace(/[^a-zA-Z0-9_\-\.]/g,'_');a.style.color='#6a
 div.appendChild(document.createTextNode('📎 '));div.appendChild(a);div.appendChild(document.createTextNode(' ('+Math.round(m.size/1024)+'KB)'));
 addChat(div);
 delete fileChunks[d.id];
-log('file received: '+m.name,'#6a6');
-}else{
-log('file chunk '+recv+'/'+d.total);
+log('✓ Received: '+m.name,'#6a6');
+}else if(pct>=fileChunks[d.id].lastPct+10){
+fileChunks[d.id].lastPct=pct;
+log('⬇ '+d.name+': '+pct+'%','#fa6');
 }
 }
 else if(d.type==='fetch'){
@@ -524,13 +526,15 @@ channel.publish('data',{type:'file',from:myId,name:f.name,mime:f.type||'applicat
 }else{
 var fileId='f'+Date.now();
 var total=Math.ceil(b64.length/chunkSize);
-var sizeMB=Math.round(f.size/1024/1024);
-log('sending '+sizeMB+'MB file ('+total+' chunks)...');
+var sizeKB=Math.round(f.size/1024);
+log('⬆ Sending: '+f.name+' ('+sizeKB+'KB, '+total+' chunks)','#6af');
+var lastPct=0;
 var sendChunk=function(c){
-if(c>=total){log('file sent: '+f.name,'#6a6');return;}
+if(c>=total){log('✓ Sent: '+f.name,'#6a6');return;}
 var data=b64.substring(c*chunkSize,(c+1)*chunkSize);
 channel.publish('data',{type:'file_chunk',from:myId,id:fileId,name:f.name,mime:f.type||'application/octet-stream',size:f.size,chunk:c,total:total,data:data});
-if(c%50===0)log('uploading '+Math.round((c/total)*100)+'%');
+var pct=Math.round((c/total)*100);
+if(pct>=lastPct+10){lastPct=pct;log('⬆ '+f.name+': '+pct+'%','#6af');}
 setTimeout(function(){sendChunk(c+1)},75);
 };
 sendChunk(0);
