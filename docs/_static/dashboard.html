@@ -194,7 +194,9 @@ $('msg').focus();
 tryConnectBridge();
 }
 
+var bridgeReconnectTimer=null;
 function tryConnectBridge(){
+if(bridgeReconnectTimer){clearTimeout(bridgeReconnectTimer);bridgeReconnectTimer=null;}
 try{
 log('trying local bridge...');
 bridge=new WebSocket('ws://127.0.0.1:9998');
@@ -202,8 +204,16 @@ bridge.onopen=function(){
 log('bridge connected!','#6a6');
 setS('socksStatus',1,'online');
 };
-bridge.onclose=function(){log('bridge closed');setS('socksStatus',0,'offline');bridge=null};
-bridge.onerror=function(e){log('bridge error (normal if no bridge running)');bridge=null};
+bridge.onclose=function(){
+log('bridge closed - reconnecting in 3s...','#a66');
+setS('socksStatus',0,'offline');
+bridge=null;
+bridgeReconnectTimer=setTimeout(tryConnectBridge,3000);
+};
+bridge.onerror=function(e){
+bridge=null;
+if(!bridgeReconnectTimer)bridgeReconnectTimer=setTimeout(tryConnectBridge,5000);
+};
 bridge.onmessage=function(e){
 var m;try{m=JSON.parse(e.data);}catch(ex){return;}
 if(m.type==='bridge_init'){
@@ -391,7 +401,14 @@ channel.publish('data',{type:'hello',from:myId});
 });
 });
 
-ably.connection.on('failed',function(){log('connection failed','#a66');setS('status',0,'failed')});
+ably.connection.on('failed',function(){log('connection failed','#a66');setS('status',0,'failed');setTimeout(function(){log('retrying...');joinRoom(room,false);},5000);});
+ably.connection.on('closed',function(){log('connection closed','#a66');setS('status',0,'closed');});
+// Heartbeat to detect dead peer connections
+setInterval(function(){
+if(channel&&connected&&peerId){
+channel.publish('data',{type:'ping',from:myId});
+}
+},30000);
 ably.connection.on('disconnected',function(){log('signal disconnected, reconnecting...','#a66');setS('status',0,'reconnecting')});
 ably.connection.on('suspended',function(){log('signal suspended','#a66');setS('status',0,'suspended')});
 }
