@@ -27,14 +27,17 @@ var (
 	sessions  = map[string]*tcpSession{}
 
 	allowedFiles = map[string]bool{
-		"dashboard.html":   true,
-		"backend.py":       true,
-		"backend.ps1":      true,
-		"backend.txt":      true,
-		"socks-bridge.txt": true,
-		"socks-bridge.ps1": true,
-		"socks-bridge.py":  true,
-		"port-forward.txt": true,
+		"dashboard.html":    true,
+		"backend.py":        true,
+		"backend.ps1":       true,
+		"backend.txt":       true,
+		"backend.b64":       true,
+		"socks-bridge.txt":  true,
+		"socks-bridge.ps1":  true,
+		"socks-bridge.py":   true,
+		"socks-bridge.b64":  true,
+		"port-forward.txt":  true,
+		"port-forward.b64":  true,
 	}
 )
 
