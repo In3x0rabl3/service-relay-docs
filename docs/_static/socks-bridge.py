@@ -142,11 +142,11 @@ async def handle_browser_message(data):
                 data = base64.b64decode(b64)
                 sessions[sid]['writer'].write(data)
                 await sessions[sid]['writer'].drain()
-                print(f"  ← {sid} {len(data)}B")
+                print(f"  << {sid} {len(data)}B")
             except Exception as e:
-                print(f"  ← {sid} WRITE ERR: {e}")
+                print(f"  << {sid} WRITE ERR: {e}")
         else:
-            print(f"  ← {sid} NO SESSION (dropped)")
+            print(f"  << {sid} NO SESSION (dropped)")
 
     elif msg_type == 'tcp_closed':
         print(f"TCP closed: {sid}")
@@ -295,7 +295,7 @@ async def handle_socks(reader, writer):
                 if not data:
                     print(f"  {sid} EOF from client")
                     break
-                print(f"  → {sid} {len(data)}B")
+                print(f"  >> {sid} {len(data)}B")
                 await send_to_browser({
                     'type': 'tcp_data',
                     'session': sid,
