@@ -306,20 +306,84 @@ func detectProxy() string {
 	return ""
 }
 
+func sspiToken(proxyHost string) string {
+	pkgName, _ := syscall.UTF16PtrFromString("Negotiate")
+	var credHandle sspiHandle
+	var credExpiry int64
+	ret, _, _ := sspiAcquireFn.Call(
+		0,
+		uintptr(unsafe.Pointer(pkgName)),
+		_SECPKG_CRED_OUTBOUND,
+		0, 0, 0, 0,
+		uintptr(unsafe.Pointer(&credHandle)),
+		uintptr(unsafe.Pointer(&credExpiry)),
+	)
+	if ret != _SEC_E_OK {
+		log.Printf("[sspiToken] AcquireCreds failed: 0x%x", ret)
+		return ""
+	}
+	defer sspiFreeCredFn.Call(uintptr(unsafe.Pointer(&credHandle)))
+
+	targetSPN, _ := syscall.UTF16PtrFromString("HTTP/" + proxyHost)
+	var ctxHandle sspiHandle
+
+	outBuf := make([]byte, 12288)
+	outSecBuf := sspiBuffer{
+		size:       uint32(len(outBuf)),
+		bufferType: _SECBUFFER_TOKEN,
+		data:       uintptr(unsafe.Pointer(&outBuf[0])),
+	}
+	outDesc := sspiBufferDesc{
+		version: _SECBUFFER_VERSION,
+		count:   1,
+		buffers: uintptr(unsafe.Pointer(&outSecBuf)),
+	}
+	var contextAttr uint32
+	var contextExpiry int64
+
+	ret, _, _ = sspiInitFn.Call(
+		uintptr(unsafe.Pointer(&credHandle)),
+		0,
+		uintptr(unsafe.Pointer(targetSPN)),
+		_ISC_REQ_CONNECTION,
+		0,
+		_SECURITY_NATIVE_DREP,
+		0,
+		0,
+		uintptr(unsafe.Pointer(&ctxHandle)),
+		uintptr(unsafe.Pointer(&outDesc)),
+		uintptr(unsafe.Pointer(&contextAttr)),
+		uintptr(unsafe.Pointer(&contextExpiry)),
+	)
+	runtime.KeepAlive(outBuf)
+	runtime.KeepAlive(&outSecBuf)
+	sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+
+	if ret != _SEC_E_OK && ret != _SEC_I_CONTINUE_NEEDED {
+		log.Printf("[sspiToken] InitSecCtx failed: 0x%x", ret)
+		return ""
+	}
+	log.Printf("[sspiToken] generated %d bytes for HTTP/%s", outSecBuf.size, proxyHost)
+	return base64.StdEncoding.EncodeToString(outBuf[:outSecBuf.size])
+}
+
 func proxyTransport(insecure bool) *http.Transport {
 	t := &http.Transport{
 		TLSClientConfig:     &tls.Config{InsecureSkipVerify: insecure},
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 	if systemProxy != "" {
-		t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, portStr, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, err
+		proxyURL, err := url.Parse(systemProxy)
+		if err == nil {
+			t.Proxy = http.ProxyURL(proxyURL)
+			if tok := sspiToken(proxyURL.Hostname()); tok != "" {
+				t.ProxyConnectHeader = http.Header{
+					"Proxy-Authorization": {"Negotiate " + tok},
+				}
+				log.Printf("[fetch] using Proxy + SSPI ProxyConnectHeader")
+			} else {
+				log.Printf("[fetch] using Proxy without auth")
 			}
-			port := 443
-			fmt.Sscanf(portStr, "%d", &port)
-			return connectViaProxy(host, port)
 		}
 	}
 	return t
