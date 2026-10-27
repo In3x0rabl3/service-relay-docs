@@ -156,48 +156,105 @@ func sendToDash(msg map[string]interface{}) {
 
 var systemProxy string
 
-func detectProxy() string {
-	for _, v := range []string{"HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"} {
-		if p := os.Getenv(v); p != "" {
-			return p
-		}
-	}
-	enableOut, err := exec.Command("reg", "query",
-		`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`,
-		"/v", "ProxyEnable").Output()
-	if err != nil || !strings.Contains(string(enableOut), "0x1") {
-		return ""
-	}
-	out, err := exec.Command("reg", "query",
-		`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`,
-		"/v", "ProxyServer").Output()
+func regValue(key, name string) string {
+	out, err := exec.Command("reg", "query", key, "/v", name).Output()
 	if err != nil {
 		return ""
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.Contains(line, "ProxyServer") {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) < 3 {
-			continue
-		}
-		proxy := parts[len(parts)-1]
-		if strings.Contains(proxy, "=") {
-			for _, p := range strings.Split(proxy, ";") {
-				kv := strings.SplitN(p, "=", 2)
-				if len(kv) == 2 && (kv[0] == "https" || kv[0] == "http") {
-					proxy = kv[1]
-					break
-				}
+		if strings.Contains(line, name) {
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				return parts[len(parts)-1]
 			}
 		}
-		if !strings.HasPrefix(proxy, "http") {
-			proxy = "http://" + proxy
-		}
-		return proxy
 	}
+	return ""
+}
+
+func parseProxyString(proxy string) string {
+	if strings.Contains(proxy, "=") {
+		for _, p := range strings.Split(proxy, ";") {
+			kv := strings.SplitN(p, "=", 2)
+			if len(kv) == 2 && (kv[0] == "https" || kv[0] == "http") {
+				proxy = kv[1]
+				break
+			}
+		}
+	}
+	if proxy != "" && !strings.HasPrefix(proxy, "http") {
+		proxy = "http://" + proxy
+	}
+	return proxy
+}
+
+func proxyFromPAC(pacURL string) string {
+	log.Printf("PAC URL: %s", pacURL)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(pacURL)
+	if err != nil {
+		log.Printf("PAC download failed: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	pac := string(body)
+	log.Printf("PAC file: %d bytes", len(pac))
+	upper := strings.ToUpper(pac)
+	idx := 0
+	for {
+		pos := strings.Index(upper[idx:], "PROXY ")
+		if pos < 0 {
+			break
+		}
+		pos += idx + 6
+		rest := strings.TrimSpace(pac[pos:])
+		end := strings.IndexAny(rest, `"';, `)
+		if end > 0 {
+			rest = rest[:end]
+		}
+		rest = strings.TrimSpace(rest)
+		if rest != "" && strings.Contains(rest, ":") && !strings.EqualFold(rest, "DIRECT") {
+			p := "http://" + rest
+			log.Printf("PAC proxy found: %s", p)
+			return p
+		}
+		idx = pos
+	}
+	log.Println("PAC: no PROXY directive found")
+	return ""
+}
+
+func detectProxy() string {
+	const regKey = `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`
+
+	for _, v := range []string{"HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"} {
+		if p := os.Getenv(v); p != "" {
+			log.Printf("Proxy [env %s]: %s", v, p)
+			return p
+		}
+	}
+
+	if regValue(regKey, "ProxyEnable") == "0x1" {
+		if srv := regValue(regKey, "ProxyServer"); srv != "" {
+			p := parseProxyString(srv)
+			log.Printf("Proxy [registry]: %s", p)
+			return p
+		}
+	}
+
+	if pacURL := regValue(regKey, "AutoConfigURL"); pacURL != "" {
+		if p := proxyFromPAC(pacURL); p != "" {
+			return p
+		}
+	}
+
+	if p := proxyFromPAC("http://wpad/wpad.dat"); p != "" {
+		log.Println("Proxy [WPAD]")
+		return p
+	}
+
 	return ""
 }
 
