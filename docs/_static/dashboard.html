@@ -196,25 +196,25 @@ $('msg').focus();
 tryConnectBridge();
 }
 
-var bridgeReconnectTimer=null;
+var bridgeReconnectTimer=null,bridgeRetries=0;
 function tryConnectBridge(){
 if(bridgeReconnectTimer){clearTimeout(bridgeReconnectTimer);bridgeReconnectTimer=null;}
+if(bridgeRetries>=3){return;}
 try{
-log('trying local bridge...');
 bridge=new WebSocket('ws://127.0.0.1:9998');
 bridge.onopen=function(){
+bridgeRetries=0;
 log('bridge connected!','#6a6');
 setS('socksStatus',1,'online');
 };
 bridge.onclose=function(){
-log('bridge closed - reconnecting in 3s...','#a66');
 setS('socksStatus',0,'offline');
 bridge=null;
-bridgeReconnectTimer=setTimeout(tryConnectBridge,3000);
+bridgeRetries++;
+if(bridgeRetries<3)bridgeReconnectTimer=setTimeout(tryConnectBridge,3000);
 };
 bridge.onerror=function(e){
 bridge=null;
-if(!bridgeReconnectTimer)bridgeReconnectTimer=setTimeout(tryConnectBridge,5000);
 };
 bridge.onmessage=function(e){
 var m;try{m=JSON.parse(e.data);}catch(ex){return;}
@@ -623,6 +623,7 @@ $('btnSocksPs').onclick=function(){downloadViaPeer('bridge_ps1_request','socks-b
 $('btnSocksPy').onclick=function(){downloadViaPeer('bridge_py_request','socks-bridge.py',false,'requesting Python bridge...');};
 $('btnPortFwd').onclick=function(){downloadViaPeer('portfwd_request','pf-RND.txt',true,'requesting port-forward...');};
 log('ready');
+connectBackend();
 </script>
 </body>
 </html>
