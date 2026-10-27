@@ -157,29 +157,30 @@ channel.publish('data',{type:'response',from:myId,id:m.id,status:m.status,header
 }
 else if(m.type==='connected'){
 log('tcp connected: '+m.session);
-if(channel)channel.publish('data',{type:'tcp_connected',from:myId,session:m.session});
+if(channel)channel.publish('data',{type:'tcp_connected',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
 sendToBridge({type:'tcp_connected',session:m.session});
 }
 else if(m.type==='data'){
 var d=m.data;
-if(d.length>40000){
-for(var i=0;i<d.length;i+=40000){
-var chunk=d.substring(i,i+40000);
-if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:chunk});
+log('⬆ backend→relay '+m.session+' '+d.length+'b','#666');
+if(d.length>12000){
+for(var i=0;i<d.length;i+=12000){
+var chunk=d.substring(i,i+12000);
+if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:chunk},function(e){if(e)log('relay err: '+e.message,'#a66')});
 }
 }else{
-if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:d});
+if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:d},function(e){if(e)log('relay err: '+e.message,'#a66')});
 }
 sendToBridge({type:'tcp_data',session:m.session,data:m.data});
 }
 else if(m.type==='closed'){
 log('tcp closed: '+m.session);
-if(channel)channel.publish('data',{type:'tcp_closed',from:myId,session:m.session});
+if(channel)channel.publish('data',{type:'tcp_closed',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
 sendToBridge({type:'tcp_closed',session:m.session});
 }
 else if(m.type==='error'){
 log('tcp error: '+m.msg,'#a66');
-if(channel)channel.publish('data',{type:'tcp_error',from:myId,session:m.session,error:m.msg});
+if(channel)channel.publish('data',{type:'tcp_error',from:myId,session:m.session,error:m.msg},function(e){if(e)log('relay err: '+e.message,'#a66')});
 sendToBridge({type:'tcp_error',session:m.session,error:m.msg});
 }
 };
@@ -197,9 +198,10 @@ tryConnectBridge();
 }
 
 var bridgeReconnectTimer=null,bridgeRetries=0;
-function tryConnectBridge(){
+function tryConnectBridge(manual){
 if(bridgeReconnectTimer){clearTimeout(bridgeReconnectTimer);bridgeReconnectTimer=null;}
-if(bridgeRetries>=3){return;}
+if(manual)bridgeRetries=0;
+if(bridgeRetries>=5){log('bridge retry limit reached — click Connect to retry','#a66');return;}
 try{
 bridge=new WebSocket('ws://127.0.0.1:9998');
 bridge.onopen=function(){
@@ -211,7 +213,7 @@ bridge.onclose=function(){
 setS('socksStatus',0,'offline');
 bridge=null;
 bridgeRetries++;
-if(bridgeRetries<3)bridgeReconnectTimer=setTimeout(tryConnectBridge,3000);
+if(bridgeRetries<5)bridgeReconnectTimer=setTimeout(tryConnectBridge,3000);
 };
 bridge.onerror=function(e){
 bridge=null;
@@ -223,19 +225,21 @@ log('bridge room: '+m.room);
 }else if(m.type==='tcp_connect'){
 log('bridge tcp: '+m.host+':'+m.port);
 if(channel&&peerId){
-channel.publish('data',{type:'tcp_connect',from:myId,session:m.session,host:m.host,port:m.port});
+channel.publish('data',{type:'tcp_connect',from:myId,session:m.session,host:m.host,port:m.port},function(e){if(e)log('relay err: '+e.message,'#a66')});
 }else if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'connect',session:m.session,host:m.host,port:m.port}));
-}
+}else{log('no route for tcp_connect','#a66');}
 }else if(m.type==='tcp_data'){
+log('⬆ bridge→relay '+m.session+' '+(m.data?m.data.length:0)+'b','#666');
 if(channel&&peerId){
-channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:m.data});
+channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:m.data},function(e){if(e)log('relay err: '+e.message,'#a66')});
 }else if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'data',session:m.session,data:m.data}));
-}
+}else{log('no route for tcp_data','#a66');}
 }else if(m.type==='tcp_close'){
+log('bridge tcp close: '+m.session);
 if(channel&&peerId){
-channel.publish('data',{type:'tcp_close',from:myId,session:m.session});
+channel.publish('data',{type:'tcp_close',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
 }else if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'close',session:m.session}));
 }
@@ -337,31 +341,41 @@ log('got response');
 if(pending[d.id]){pending[d.id](d);}
 }
 else if(d.type==='tcp_connect'){
-log('tcp connect: '+d.host+':'+d.port);
+log('peer tcp connect: '+d.host+':'+d.port);
 if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'connect',session:d.session,host:d.host,port:d.port}));
 }else{
+log('no backend for tcp_connect','#a66');
 channel.publish('data',{type:'tcp_error',from:myId,session:d.session,error:'no backend'});
 }
 }
 else if(d.type==='tcp_data'){
+log('⬇ relay→local '+d.session+' '+(d.data?d.data.length:0)+'b','#666');
 if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'data',session:d.session,data:d.data}));
 }
+if(bridge&&bridge.readyState===1){
 sendToBridge({type:'tcp_data',session:d.session,data:d.data});
+}else if(!backend||backend.readyState!==1){
+log('no route for incoming tcp_data','#a66');
+}
 }
 else if(d.type==='tcp_close'){
+log('peer tcp close: '+d.session);
 if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'close',session:d.session}));
 }
 }
 else if(d.type==='tcp_connected'){
+log('peer tcp connected: '+d.session);
 sendToBridge({type:'tcp_connected',session:d.session});
 }
 else if(d.type==='tcp_closed'){
+log('peer tcp closed: '+d.session,'#a66');
 sendToBridge({type:'tcp_closed',session:d.session});
 }
 else if(d.type==='tcp_error'){
+log('peer tcp error: '+(d.error||'unknown'),'#a66');
 sendToBridge({type:'tcp_error',session:d.session,error:d.error});
 }
 else if(d.type==='bridge_request'||d.type==='bridge_ps1_request'||d.type==='bridge_py_request'||d.type==='portfwd_request'||d.type==='backend_request'||d.type==='backend_ps1_request'||d.type==='backend_py_request'){
@@ -519,7 +533,7 @@ $('httpOut').style.color='#a66';
 var gen=function(){return'XXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
 
 $('btnBackend').onclick=connectBackend;
-$('btnBridge').onclick=tryConnectBridge;
+$('btnBridge').onclick=function(){tryConnectBridge(true)};
 $('btnGetBackend').onclick=function(){
 var a=document.createElement('a');
 a.href='backend.py';
