@@ -142,8 +142,11 @@ async def handle_browser_message(data):
                 data = base64.b64decode(b64)
                 sessions[sid]['writer'].write(data)
                 await sessions[sid]['writer'].drain()
-            except:
-                pass
+                print(f"  ← {sid} {len(data)}B")
+            except Exception as e:
+                print(f"  ← {sid} WRITE ERR: {e}")
+        else:
+            print(f"  ← {sid} NO SESSION (dropped)")
 
     elif msg_type == 'tcp_closed':
         print(f"TCP closed: {sid}")
@@ -290,7 +293,9 @@ async def handle_socks(reader, writer):
             try:
                 data = await asyncio.wait_for(reader.read(4096), timeout=0.1)
                 if not data:
+                    print(f"  {sid} EOF from client")
                     break
+                print(f"  → {sid} {len(data)}B")
                 await send_to_browser({
                     'type': 'tcp_data',
                     'session': sid,
@@ -298,7 +303,8 @@ async def handle_socks(reader, writer):
                 })
             except asyncio.TimeoutError:
                 continue
-            except:
+            except Exception as e:
+                print(f"  {sid} relay error: {e}")
                 break
 
         if sid in sessions:
