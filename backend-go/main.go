@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
@@ -149,10 +150,64 @@ func sendToDash(msg map[string]interface{}) {
 	}
 }
 
+// --- DNS with DoH fallback ---
+
+func resolveHost(host string) (string, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return host, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupHost(ctx, host)
+	if err == nil && len(ips) > 0 {
+		log.Printf("DNS [system] %s -> %s", host, ips[0])
+		return ips[0], nil
+	}
+	log.Printf("DNS [system] %s failed: %v, trying DoH", host, err)
+
+	dohURL := fmt.Sprintf("https://1.1.1.1/dns-query?name=%s&type=A", url.QueryEscape(host))
+	req, _ := http.NewRequest("GET", dohURL, nil)
+	req.Header.Set("Accept", "application/dns-json")
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("system DNS and DoH both failed: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32768))
+
+	var result struct {
+		Answer []struct {
+			Data string `json:"data"`
+			Type int    `json:"type"`
+		} `json:"Answer"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("DoH parse error: %v", err)
+	}
+	for _, a := range result.Answer {
+		if a.Type == 1 {
+			log.Printf("DNS [DoH] %s -> %s", host, a.Data)
+			return a.Data, nil
+		}
+	}
+	return "", fmt.Errorf("no A record for %s via DoH", host)
+}
+
 // --- TCP tunnel ---
 
 func handleTCPConnect(session, host string, port int) {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	resolved, err := resolveHost(host)
+	if err != nil {
+		sendToDash(map[string]interface{}{"type": "error", "session": session, "msg": err.Error()})
+		log.Printf("DNS error [%s]: %v", session, err)
+		return
+	}
+	addr := fmt.Sprintf("%s:%d", resolved, port)
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		sendToDash(map[string]interface{}{"type": "error", "session": session, "msg": err.Error()})
