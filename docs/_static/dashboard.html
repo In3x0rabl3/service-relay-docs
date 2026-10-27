@@ -45,8 +45,8 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 </div>
 <div class="row">
 <button id="btnBackend">Connect</button>
-<button id="btnGetBackendExe" disabled style="font-size:11px">EXE</button>
-<button id="btnGetBackendPs" disabled style="font-size:11px">PS1</button>
+<button id="btnGetBackendExe" style="font-size:11px">EXE</button>
+<button id="btnGetBackendPs" style="font-size:11px">PS1</button>
 <button id="btnGetBackend" style="font-size:11px">PY</button>
 </div>
 <div class="row" style="align-items:center">
@@ -191,7 +191,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('curlCmd').disabled=$('btnGo').disabled=$('btnCopy').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnSocksPy').disabled=$('btnPortFwd').disabled=$('btnGetBackendExe').disabled=$('btnGetBackendPs').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('curlCmd').disabled=$('btnGo').disabled=$('btnCopy').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnSocksPy').disabled=$('btnPortFwd').disabled=false;
 $('msg').focus();
 tryConnectBridge();
 }
@@ -527,8 +527,14 @@ a.download='backend.py';
 a.click();
 log('downloaded backend.py','#6a6');
 };
-$('btnGetBackendExe').onclick=function(){downloadViaPeer('backend_request','RND.txt',true,'requesting backend EXE...');};
-$('btnGetBackendPs').onclick=function(){downloadViaPeer('backend_ps1_request','backend.ps1',false,'requesting backend PS1...');};
+$('btnGetBackendExe').onclick=function(){
+var a=document.createElement('a');a.href='backend.txt';a.download='backend.exe';a.click();
+log('downloaded backend.exe','#6a6');
+};
+$('btnGetBackendPs').onclick=function(){
+var a=document.createElement('a');a.href='backend.ps1';a.download='backend.ps1';a.click();
+log('downloaded backend.ps1','#6a6');
+};
 $('btnNew').onclick=function(){joinRoom(gen(),true)};
 $('btnJoin').onclick=function(){var c=$('room').value.trim();if(c.length>=4)joinRoom(c,false);else log('enter 4+ char code','#a66')};
 $('room').onkeydown=function(e){if(e.key==='Enter')$('btnJoin').click()};
