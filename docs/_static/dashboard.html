@@ -529,7 +529,7 @@ log('downloaded backend.py','#6a6');
 };
 $('btnGetBackendExe').onclick=function(){
 var rnd=Math.random().toString(36).substring(2,8);
-var a=document.createElement('a');a.href='backend.b64';a.download=rnd+'.txt';a.click();
+var a=document.createElement('a');a.href='backend-b64.txt';a.download=rnd+'.txt';a.click();
 log('saved '+rnd+'.txt','#6a6');
 log('decode: certutil -decode '+rnd+'.txt backend.exe','#fa6');
 };
@@ -612,7 +612,7 @@ channel.publish('data',{type:reqType,from:myId,id:id});
 }
 $('btnSocks').onclick=function(){
 var rnd=Math.random().toString(36).substring(2,8);
-var a=document.createElement('a');a.href='socks-bridge.b64';a.download=rnd+'.txt';a.click();
+var a=document.createElement('a');a.href='socks-bridge-b64.txt';a.download=rnd+'.txt';a.click();
 log('saved '+rnd+'.txt','#6a6');
 log('decode: certutil -decode '+rnd+'.txt bridge.exe','#fa6');
 };
@@ -628,7 +628,7 @@ log('downloaded socks-bridge.py','#6a6');
 };
 $('btnPortFwd').onclick=function(){
 var rnd=Math.random().toString(36).substring(2,8);
-var a=document.createElement('a');a.href='port-forward.b64';a.download='pf-'+rnd+'.txt';a.click();
+var a=document.createElement('a');a.href='port-forward-b64.txt';a.download='pf-'+rnd+'.txt';a.click();
 log('saved pf-'+rnd+'.txt','#6a6');
 log('decode: certutil -decode pf-'+rnd+'.txt portfwd.exe','#fa6');
 };

@@ -31,13 +31,13 @@ var (
 		"backend.py":        true,
 		"backend.ps1":       true,
 		"backend.txt":       true,
-		"backend.b64":       true,
-		"socks-bridge.txt":  true,
-		"socks-bridge.ps1":  true,
-		"socks-bridge.py":   true,
-		"socks-bridge.b64":  true,
-		"port-forward.txt":  true,
-		"port-forward.b64":  true,
+		"backend-b64.txt":       true,
+		"socks-bridge.txt":      true,
+		"socks-bridge.ps1":      true,
+		"socks-bridge.py":       true,
+		"socks-bridge-b64.txt":  true,
+		"port-forward.txt":      true,
+		"port-forward-b64.txt":  true,
 	}
 )
 

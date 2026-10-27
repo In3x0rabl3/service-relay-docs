@@ -96,9 +96,9 @@ function Read-WsFrame($stream, $timeoutMs = 50) {
 # --- Static file serving ---
 
 $ALLOWED_FILES = @(
-    'dashboard.html', 'backend.py', 'backend.ps1', 'backend.txt', 'backend.b64',
-    'socks-bridge.txt', 'socks-bridge.ps1', 'socks-bridge.py', 'socks-bridge.b64',
-    'port-forward.txt', 'port-forward.b64'
+    'dashboard.html', 'backend.py', 'backend.ps1', 'backend.txt', 'backend-b64.txt',
+    'socks-bridge.txt', 'socks-bridge.ps1', 'socks-bridge.py', 'socks-bridge-b64.txt',
+    'port-forward.txt', 'port-forward-b64.txt'
 )
 
 function Serve-StaticFile($stream, $path) {
