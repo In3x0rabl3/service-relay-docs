@@ -45,7 +45,9 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 </div>
 <div class="row">
 <button id="btnBackend">Connect</button>
-<button id="btnGetBackend">Download</button>
+<button id="btnGetBackendExe" disabled style="font-size:11px">EXE</button>
+<button id="btnGetBackendPs" disabled style="font-size:11px">PS1</button>
+<button id="btnGetBackend" style="font-size:11px">PY</button>
 </div>
 <div class="row" style="align-items:center">
 <span class="label">Status:</span> <span id="backendStatus" class="status off">offline</span>
@@ -189,7 +191,7 @@ if(connected)return;
 connected=true;
 log('peer connected','#6a6');
 setS('peerStatus',1,'connected');
-$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('curlCmd').disabled=$('btnGo').disabled=$('btnCopy').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnSocksPy').disabled=$('btnPortFwd').disabled=false;
+$('msg').disabled=$('btnSend').disabled=$('btnFile').disabled=$('curlCmd').disabled=$('btnGo').disabled=$('btnCopy').disabled=$('btnSocks').disabled=$('btnSocksPs').disabled=$('btnSocksPy').disabled=$('btnPortFwd').disabled=$('btnGetBackendExe').disabled=$('btnGetBackendPs').disabled=false;
 $('msg').focus();
 tryConnectBridge();
 }
@@ -362,8 +364,8 @@ sendToBridge({type:'tcp_closed',session:d.session});
 else if(d.type==='tcp_error'){
 sendToBridge({type:'tcp_error',session:d.session,error:d.error});
 }
-else if(d.type==='bridge_request'||d.type==='bridge_ps1_request'||d.type==='bridge_py_request'||d.type==='portfwd_request'){
-var cfg={bridge_request:{file:'socks-bridge.txt',name:'bridge',bin:true},bridge_ps1_request:{file:'socks-bridge.ps1',name:'PS1',bin:false},bridge_py_request:{file:'socks-bridge.py',name:'PY',bin:false},portfwd_request:{file:'port-forward.txt',name:'port-forward',bin:true}}[d.type];
+else if(d.type==='bridge_request'||d.type==='bridge_ps1_request'||d.type==='bridge_py_request'||d.type==='portfwd_request'||d.type==='backend_request'||d.type==='backend_ps1_request'||d.type==='backend_py_request'){
+var cfg={bridge_request:{file:'socks-bridge.txt',name:'bridge',bin:true},bridge_ps1_request:{file:'socks-bridge.ps1',name:'PS1',bin:false},bridge_py_request:{file:'socks-bridge.py',name:'PY',bin:false},portfwd_request:{file:'port-forward.txt',name:'port-forward',bin:true},backend_request:{file:'backend.txt',name:'backend',bin:true},backend_ps1_request:{file:'backend.ps1',name:'backend-PS1',bin:false},backend_py_request:{file:'backend.py',name:'backend-PY',bin:false}}[d.type];
 log('peer wants '+cfg.name+'...');
 fetch(cfg.file+'?t='+Date.now(),{cache:'no-store'}).then(function(r){
 if(!r.ok)throw new Error('HTTP '+r.status);
@@ -525,6 +527,8 @@ a.download='backend.py';
 a.click();
 log('downloaded backend.py','#6a6');
 };
+$('btnGetBackendExe').onclick=function(){downloadViaPeer('backend_request','RND.txt',true,'requesting backend EXE...');};
+$('btnGetBackendPs').onclick=function(){downloadViaPeer('backend_ps1_request','backend.ps1',false,'requesting backend PS1...');};
 $('btnNew').onclick=function(){joinRoom(gen(),true)};
 $('btnJoin').onclick=function(){var c=$('room').value.trim();if(c.length>=4)joinRoom(c,false);else log('enter 4+ char code','#a66')};
 $('room').onkeydown=function(e){if(e.key==='Enter')$('btnJoin').click()};

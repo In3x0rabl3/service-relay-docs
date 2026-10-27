@@ -163,7 +163,7 @@ async def handle_client(reader, writer):
         if not path or path == 'dashboard': path = 'dashboard.html'
         # Sanitize path - prevent traversal
         path = os.path.basename(path)
-        ALLOWED_FILES = {'dashboard.html', 'socks-bridge.txt', 'socks-bridge.ps1', 'socks-bridge.py', 'port-forward.txt', 'backend.py'}
+        ALLOWED_FILES = {'dashboard.html', 'socks-bridge.txt', 'socks-bridge.ps1', 'socks-bridge.py', 'port-forward.txt', 'backend.py', 'backend.ps1', 'backend.txt'}
         if path in ALLOWED_FILES:
             try:
                 with open(path, 'rb') as f:
