@@ -334,67 +334,11 @@ func connectViaProxy(host string, port int) (net.Conn, error) {
 	if _, _, e := net.SplitHostPort(proxyAddr); e != nil {
 		proxyAddr += ":8080"
 	}
-	conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("proxy connect: %v", err)
-	}
-
+	proxyHost := u.Hostname()
 	target := fmt.Sprintf("%s:%d", host, port)
-	br := bufio.NewReader(conn)
-	connectReq := &http.Request{Method: "CONNECT"}
 
-	// Try unauthenticated CONNECT first
-	fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Connection: keep-alive\r\n\r\n", target, target)
-	resp, err := http.ReadResponse(br, connectReq)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("proxy response: %v", err)
-	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-
-	if resp.StatusCode == 200 {
-		log.Printf("TCP [proxy CONNECT] -> %s", target)
-		return &bufferedConn{Conn: conn, r: br}, nil
-	}
-
-	if resp.StatusCode != 407 {
-		conn.Close()
-		return nil, fmt.Errorf("proxy rejected CONNECT: %d %s", resp.StatusCode, resp.Status)
-	}
-
-	// 407 — pick Negotiate or NTLM
-	scheme := ""
-	for _, v := range resp.Header.Values("Proxy-Authenticate") {
-		if strings.HasPrefix(strings.TrimSpace(v), "Negotiate") {
-			scheme = "Negotiate"
-			break
-		}
-	}
-	if scheme == "" {
-		for _, v := range resp.Header.Values("Proxy-Authenticate") {
-			if strings.HasPrefix(strings.TrimSpace(v), "NTLM") {
-				scheme = "NTLM"
-				break
-			}
-		}
-	}
-	if scheme == "" {
-		conn.Close()
-		return nil, fmt.Errorf("proxy 407: no Negotiate/NTLM in %v", resp.Header.Values("Proxy-Authenticate"))
-	}
-	log.Printf("Proxy auth scheme: %s", scheme)
-
-	// Always reconnect — many proxies close after the initial 407 without
-	// sending Connection: close, causing "forcibly closed" on the next write.
-	conn.Close()
-	conn, err = net.DialTimeout("tcp", proxyAddr, 10*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("proxy reconnect: %v", err)
-	}
-	br = bufio.NewReader(conn)
-
-	// SSPI: acquire current user's credentials
+	// Acquire SSPI credentials up front (try Negotiate, fall back to NTLM)
+	scheme := "Negotiate"
 	pkgName, _ := syscall.UTF16PtrFromString(scheme)
 	var credHandle sspiHandle
 	var credExpiry int64
@@ -406,148 +350,241 @@ func connectViaProxy(host string, port int) (net.Conn, error) {
 		uintptr(unsafe.Pointer(&credHandle)),
 		uintptr(unsafe.Pointer(&credExpiry)),
 	)
-	if ret != _SEC_E_OK {
-		conn.Close()
-		return nil, fmt.Errorf("SSPI AcquireCredentials: 0x%x", ret)
+	hasSSPI := ret == _SEC_E_OK
+	if !hasSSPI {
+		log.Printf("[proxy] SSPI Negotiate: 0x%x, trying NTLM", ret)
+		scheme = "NTLM"
+		pkgName, _ = syscall.UTF16PtrFromString(scheme)
+		ret, _, _ = sspiAcquireFn.Call(
+			0,
+			uintptr(unsafe.Pointer(pkgName)),
+			_SECPKG_CRED_OUTBOUND,
+			0, 0, 0, 0,
+			uintptr(unsafe.Pointer(&credHandle)),
+			uintptr(unsafe.Pointer(&credExpiry)),
+		)
+		hasSSPI = ret == _SEC_E_OK
+		if !hasSSPI {
+			log.Printf("[proxy] SSPI NTLM: 0x%x — no SSPI available", ret)
+		}
 	}
-	defer sspiFreeCredFn.Call(uintptr(unsafe.Pointer(&credHandle)))
+	if hasSSPI {
+		log.Printf("[proxy] SSPI %s credentials acquired", scheme)
+		defer sspiFreeCredFn.Call(uintptr(unsafe.Pointer(&credHandle)))
+	}
 
-	proxyHost := u.Hostname()
-	targetSPN, _ := syscall.UTF16PtrFromString("HTTP/" + proxyHost)
-	var ctxHandle sspiHandle
-	haveCtx := false
-	challenge := ""
-
-	for round := 0; round < 3; round++ {
-		outBuf := make([]byte, 12288)
-		outSecBuf := sspiBuffer{
-			size:       uint32(len(outBuf)),
-			bufferType: _SECBUFFER_TOKEN,
-			data:       uintptr(unsafe.Pointer(&outBuf[0])),
-		}
-		outDesc := sspiBufferDesc{
-			version: _SECBUFFER_VERSION,
-			count:   1,
-			buffers: uintptr(unsafe.Pointer(&outSecBuf)),
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			log.Printf("[proxy] retry %d for %s", attempt, target)
 		}
 
-		var inDesc sspiBufferDesc
-		var inSecBuf sspiBuffer
-		var challengeBytes []byte
-		var inDescArg uintptr
+		log.Printf("[proxy] dialing %s ...", proxyAddr)
+		conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Second)
+		if err != nil {
+			lastErr = fmt.Errorf("proxy dial %s: %v", proxyAddr, err)
+			log.Printf("[proxy] dial FAILED: %v", err)
+			continue
+		}
+		log.Printf("[proxy] connected to %s", proxyAddr)
 
-		if challenge != "" {
-			challengeBytes, err = base64.StdEncoding.DecodeString(challenge)
-			if err != nil {
-				if haveCtx {
-					sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
-				}
+		br := bufio.NewReader(conn)
+		connectReq := &http.Request{Method: "CONNECT"}
+
+		if !hasSSPI {
+			// No SSPI — try unauthenticated
+			log.Printf("[proxy] sending CONNECT %s (no auth)", target)
+			if _, err := fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target); err != nil {
+				log.Printf("[proxy] write FAILED: %v", err)
 				conn.Close()
-				return nil, fmt.Errorf("SSPI decode challenge: %v", err)
+				lastErr = fmt.Errorf("proxy write: %v", err)
+				continue
 			}
-			inSecBuf = sspiBuffer{
-				size:       uint32(len(challengeBytes)),
+			resp, err := http.ReadResponse(br, connectReq)
+			if err != nil {
+				log.Printf("[proxy] read FAILED: %v", err)
+				conn.Close()
+				lastErr = fmt.Errorf("proxy read: %v", err)
+				continue
+			}
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			log.Printf("[proxy] response: %d %s", resp.StatusCode, resp.Status)
+			if resp.StatusCode == 200 {
+				log.Printf("TCP [proxy CONNECT] -> %s", target)
+				return &bufferedConn{Conn: conn, r: br}, nil
+			}
+			conn.Close()
+			return nil, fmt.Errorf("proxy: %d %s (no SSPI)", resp.StatusCode, resp.Status)
+		}
+
+		// SSPI auth — send auth token with the very first CONNECT
+		targetSPN, _ := syscall.UTF16PtrFromString("HTTP/" + proxyHost)
+		var ctxHandle sspiHandle
+		haveCtx := false
+		challenge := ""
+		authOK := false
+
+		for round := 0; round < 3; round++ {
+			outBuf := make([]byte, 12288)
+			outSecBuf := sspiBuffer{
+				size:       uint32(len(outBuf)),
 				bufferType: _SECBUFFER_TOKEN,
-				data:       uintptr(unsafe.Pointer(&challengeBytes[0])),
+				data:       uintptr(unsafe.Pointer(&outBuf[0])),
 			}
-			inDesc = sspiBufferDesc{
+			outDesc := sspiBufferDesc{
 				version: _SECBUFFER_VERSION,
 				count:   1,
-				buffers: uintptr(unsafe.Pointer(&inSecBuf)),
+				buffers: uintptr(unsafe.Pointer(&outSecBuf)),
 			}
-			inDescArg = uintptr(unsafe.Pointer(&inDesc))
-		}
 
-		var ctxIn uintptr
-		if haveCtx {
-			ctxIn = uintptr(unsafe.Pointer(&ctxHandle))
-		}
+			var inDesc sspiBufferDesc
+			var inSecBuf sspiBuffer
+			var challengeBytes []byte
+			var inDescArg uintptr
 
-		var contextAttr uint32
-		var contextExpiry int64
+			if challenge != "" {
+				challengeBytes, err = base64.StdEncoding.DecodeString(challenge)
+				if err != nil {
+					if haveCtx {
+						sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+					}
+					conn.Close()
+					return nil, fmt.Errorf("SSPI decode challenge: %v", err)
+				}
+				inSecBuf = sspiBuffer{
+					size:       uint32(len(challengeBytes)),
+					bufferType: _SECBUFFER_TOKEN,
+					data:       uintptr(unsafe.Pointer(&challengeBytes[0])),
+				}
+				inDesc = sspiBufferDesc{
+					version: _SECBUFFER_VERSION,
+					count:   1,
+					buffers: uintptr(unsafe.Pointer(&inSecBuf)),
+				}
+				inDescArg = uintptr(unsafe.Pointer(&inDesc))
+			}
 
-		ret, _, _ = sspiInitFn.Call(
-			uintptr(unsafe.Pointer(&credHandle)),
-			ctxIn,
-			uintptr(unsafe.Pointer(targetSPN)),
-			_ISC_REQ_CONNECTION,
-			0,
-			_SECURITY_NATIVE_DREP,
-			inDescArg,
-			0,
-			uintptr(unsafe.Pointer(&ctxHandle)),
-			uintptr(unsafe.Pointer(&outDesc)),
-			uintptr(unsafe.Pointer(&contextAttr)),
-			uintptr(unsafe.Pointer(&contextExpiry)),
-		)
-		runtime.KeepAlive(challengeBytes)
-		runtime.KeepAlive(&inSecBuf)
-		runtime.KeepAlive(&inDesc)
-		runtime.KeepAlive(outBuf)
-		runtime.KeepAlive(&outSecBuf)
+			var ctxIn uintptr
+			if haveCtx {
+				ctxIn = uintptr(unsafe.Pointer(&ctxHandle))
+			}
 
-		haveCtx = true
+			var contextAttr uint32
+			var contextExpiry int64
 
-		if ret != _SEC_E_OK && ret != _SEC_I_CONTINUE_NEEDED {
-			sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
-			conn.Close()
-			return nil, fmt.Errorf("SSPI InitSecurityContext: 0x%x", ret)
-		}
+			log.Printf("[proxy] SSPI round %d: InitSecurityContext (challenge=%d bytes)", round+1, len(challengeBytes))
+			ret, _, _ = sspiInitFn.Call(
+				uintptr(unsafe.Pointer(&credHandle)),
+				ctxIn,
+				uintptr(unsafe.Pointer(targetSPN)),
+				_ISC_REQ_CONNECTION,
+				0,
+				_SECURITY_NATIVE_DREP,
+				inDescArg,
+				0,
+				uintptr(unsafe.Pointer(&ctxHandle)),
+				uintptr(unsafe.Pointer(&outDesc)),
+				uintptr(unsafe.Pointer(&contextAttr)),
+				uintptr(unsafe.Pointer(&contextExpiry)),
+			)
+			runtime.KeepAlive(challengeBytes)
+			runtime.KeepAlive(&inSecBuf)
+			runtime.KeepAlive(&inDesc)
+			runtime.KeepAlive(outBuf)
+			runtime.KeepAlive(&outSecBuf)
 
-		token := base64.StdEncoding.EncodeToString(outBuf[:outSecBuf.size])
-		log.Printf("SSPI round %d: %d bytes token", round+1, outSecBuf.size)
+			haveCtx = true
 
-		fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s %s\r\nProxy-Connection: keep-alive\r\n\r\n",
-			target, target, scheme, token)
+			if ret != _SEC_E_OK && ret != _SEC_I_CONTINUE_NEEDED {
+				log.Printf("[proxy] SSPI InitSecurityContext FAILED: 0x%x", ret)
+				sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+				conn.Close()
+				return nil, fmt.Errorf("SSPI InitSecurityContext: 0x%x", ret)
+			}
 
-		resp, err = http.ReadResponse(br, connectReq)
-		if err != nil {
-			sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
-			conn.Close()
-			return nil, fmt.Errorf("proxy auth response: %v", err)
-		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+			token := base64.StdEncoding.EncodeToString(outBuf[:outSecBuf.size])
+			log.Printf("[proxy] SSPI round %d: token=%d bytes, continue=%v", round+1, outSecBuf.size, ret == _SEC_I_CONTINUE_NEEDED)
 
-		if resp.StatusCode == 200 {
-			sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
-			log.Printf("TCP [proxy CONNECT+SSPI %s] -> %s", scheme, target)
-			return &bufferedConn{Conn: conn, r: br}, nil
-		}
-
-		if resp.StatusCode != 407 {
-			sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
-			conn.Close()
-			return nil, fmt.Errorf("proxy auth failed: %d %s", resp.StatusCode, resp.Status)
-		}
-
-		if ret != _SEC_I_CONTINUE_NEEDED {
-			sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
-			conn.Close()
-			return nil, fmt.Errorf("proxy 407 but SSPI done (no continue)")
-		}
-
-		// Extract challenge token for next round
-		challenge = ""
-		for _, v := range resp.Header.Values("Proxy-Authenticate") {
-			v = strings.TrimSpace(v)
-			if strings.HasPrefix(v, scheme+" ") {
-				challenge = strings.TrimSpace(strings.TrimPrefix(v, scheme+" "))
+			log.Printf("[proxy] sending CONNECT %s with %s auth", target, scheme)
+			if _, err := fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s %s\r\nProxy-Connection: keep-alive\r\n\r\n",
+				target, target, scheme, token); err != nil {
+				log.Printf("[proxy] write FAILED: %v", err)
+				sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+				conn.Close()
+				lastErr = fmt.Errorf("proxy write round %d: %v", round+1, err)
 				break
 			}
+
+			log.Printf("[proxy] reading response...")
+			resp, err := http.ReadResponse(br, connectReq)
+			if err != nil {
+				log.Printf("[proxy] read FAILED: %v", err)
+				sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+				conn.Close()
+				lastErr = fmt.Errorf("proxy read round %d: %v", round+1, err)
+				break
+			}
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+
+			log.Printf("[proxy] response: %d %s", resp.StatusCode, resp.Status)
+			for _, v := range resp.Header.Values("Proxy-Authenticate") {
+				log.Printf("[proxy]   Proxy-Authenticate: %s", v)
+			}
+
+			if resp.StatusCode == 200 {
+				sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+				log.Printf("TCP [proxy CONNECT+SSPI %s] -> %s", scheme, target)
+				authOK = true
+				return &bufferedConn{Conn: conn, r: br}, nil
+			}
+
+			if resp.StatusCode != 407 {
+				sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+				conn.Close()
+				return nil, fmt.Errorf("proxy auth: %d %s", resp.StatusCode, resp.Status)
+			}
+
+			if ret != _SEC_I_CONTINUE_NEEDED {
+				log.Printf("[proxy] SSPI complete but proxy still 407")
+				sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+				conn.Close()
+				lastErr = fmt.Errorf("proxy 407 but SSPI done")
+				break
+			}
+
+			// Extract challenge for next round
+			challenge = ""
+			for _, v := range resp.Header.Values("Proxy-Authenticate") {
+				v = strings.TrimSpace(v)
+				if strings.HasPrefix(v, scheme+" ") {
+					challenge = strings.TrimSpace(strings.TrimPrefix(v, scheme+" "))
+					break
+				}
+			}
+			if challenge == "" {
+				log.Printf("[proxy] 407 but no challenge token")
+				sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+				conn.Close()
+				lastErr = fmt.Errorf("proxy 407 round %d: no challenge", round+1)
+				break
+			}
+			log.Printf("[proxy] got challenge: %d chars", len(challenge))
 		}
-		if challenge == "" {
+
+		if authOK {
+			break
+		}
+		if !authOK && haveCtx {
 			sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
-			conn.Close()
-			return nil, fmt.Errorf("proxy 407 round %d: no challenge token", round+1)
 		}
 	}
 
-	if haveCtx {
-		sspiDeleteCtxFn.Call(uintptr(unsafe.Pointer(&ctxHandle)))
+	if lastErr != nil {
+		return nil, lastErr
 	}
-	conn.Close()
-	return nil, fmt.Errorf("proxy SSPI: too many auth rounds")
+	return nil, fmt.Errorf("proxy CONNECT failed")
 }
 
 func dialTCP(host string, port int) (net.Conn, error) {
