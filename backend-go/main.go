@@ -385,16 +385,14 @@ func connectViaProxy(host string, port int) (net.Conn, error) {
 	}
 	log.Printf("Proxy auth scheme: %s", scheme)
 
-	// Reconnect if proxy closed the connection after 407
-	if strings.EqualFold(resp.Header.Get("Connection"), "close") ||
-		strings.EqualFold(resp.Header.Get("Proxy-Connection"), "close") {
-		conn.Close()
-		conn, err = net.DialTimeout("tcp", proxyAddr, 10*time.Second)
-		if err != nil {
-			return nil, fmt.Errorf("proxy reconnect: %v", err)
-		}
-		br = bufio.NewReader(conn)
+	// Always reconnect — many proxies close after the initial 407 without
+	// sending Connection: close, causing "forcibly closed" on the next write.
+	conn.Close()
+	conn, err = net.DialTimeout("tcp", proxyAddr, 10*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("proxy reconnect: %v", err)
 	}
+	br = bufio.NewReader(conn)
 
 	// SSPI: acquire current user's credentials
 	pkgName, _ := syscall.UTF16PtrFromString(scheme)
