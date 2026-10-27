@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha1"
 	"crypto/tls"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -150,94 +152,117 @@ func sendToDash(msg map[string]interface{}) {
 	}
 }
 
-// --- DNS with DoH fallback ---
+// --- System proxy detection ---
 
-func resolveHost(host string) (string, error) {
-	if ip := net.ParseIP(host); ip != nil {
-		return host, nil
+var systemProxy string
+
+func detectProxy() string {
+	for _, v := range []string{"HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"} {
+		if p := os.Getenv(v); p != "" {
+			return p
+		}
 	}
+	enableOut, err := exec.Command("reg", "query",
+		`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`,
+		"/v", "ProxyEnable").Output()
+	if err != nil || !strings.Contains(string(enableOut), "0x1") {
+		return ""
+	}
+	out, err := exec.Command("reg", "query",
+		`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`,
+		"/v", "ProxyServer").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.Contains(line, "ProxyServer") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 3 {
+			continue
+		}
+		proxy := parts[len(parts)-1]
+		if strings.Contains(proxy, "=") {
+			for _, p := range strings.Split(proxy, ";") {
+				kv := strings.SplitN(p, "=", 2)
+				if len(kv) == 2 && (kv[0] == "https" || kv[0] == "http") {
+					proxy = kv[1]
+					break
+				}
+			}
+		}
+		if !strings.HasPrefix(proxy, "http") {
+			proxy = "http://" + proxy
+		}
+		return proxy
+	}
+	return ""
+}
 
+func proxyFunc(req *http.Request) (*url.URL, error) {
+	if systemProxy == "" {
+		return nil, nil
+	}
+	return url.Parse(systemProxy)
+}
+
+func proxyTransport(insecure bool) *http.Transport {
+	return &http.Transport{
+		Proxy:            proxyFunc,
+		TLSClientConfig:  &tls.Config{InsecureSkipVerify: insecure},
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+}
+
+func connectViaProxy(host string, port int) (net.Conn, error) {
+	u, err := url.Parse(systemProxy)
+	if err != nil {
+		return nil, err
+	}
+	proxyAddr := u.Host
+	if _, _, e := net.SplitHostPort(proxyAddr); e != nil {
+		proxyAddr += ":8080"
+	}
+	conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("proxy connect: %v", err)
+	}
+	target := fmt.Sprintf("%s:%d", host, port)
+	fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("proxy response: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		conn.Close()
+		return nil, fmt.Errorf("proxy rejected CONNECT: %d %s", resp.StatusCode, resp.Status)
+	}
+	log.Printf("TCP [proxy CONNECT] -> %s", target)
+	return conn, nil
+}
+
+func dialTCP(host string, port int) (net.Conn, error) {
+	if systemProxy != "" {
+		return connectViaProxy(host, port)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	ips, err := net.DefaultResolver.LookupHost(ctx, host)
-	if err == nil && len(ips) > 0 {
-		log.Printf("DNS [system] %s -> %s", host, ips[0])
-		return ips[0], nil
+	ips, _ := net.DefaultResolver.LookupHost(ctx, host)
+	if len(ips) > 0 {
+		host = ips[0]
 	}
-	log.Printf("DNS [system] %s failed: %v, trying DoH", host, err)
-
-	dohClient := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
-		},
-	}
-
-	dohURL := fmt.Sprintf("https://1.1.1.1/dns-query?name=%s&type=A", url.QueryEscape(host))
-	req, _ := http.NewRequest("GET", dohURL, nil)
-	req.Header.Set("Accept", "application/dns-json")
-	resp, err := dohClient.Do(req)
-	if err != nil {
-		dohURL = fmt.Sprintf("https://8.8.8.8/resolve?name=%s&type=A", url.QueryEscape(host))
-		req, _ = http.NewRequest("GET", dohURL, nil)
-		req.Header.Set("Accept", "application/dns-json")
-		resp, err = dohClient.Do(req)
-		if err != nil {
-			return "", fmt.Errorf("system DNS and DoH both failed: %v", err)
-		}
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32768))
-
-	var result struct {
-		Answer []struct {
-			Data string `json:"data"`
-			Type int    `json:"type"`
-		} `json:"Answer"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("DoH parse error: %v", err)
-	}
-	for _, a := range result.Answer {
-		if a.Type == 1 {
-			log.Printf("DNS [DoH] %s -> %s", host, a.Data)
-			return a.Data, nil
-		}
-	}
-	return "", fmt.Errorf("no A record for %s via DoH", host)
-}
-
-func dohDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, err
-	}
-	resolved, err := resolveHost(host)
-	if err != nil {
-		return nil, err
-	}
-	return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, net.JoinHostPort(resolved, port))
-}
-
-func dohTransport(insecure bool) *http.Transport {
-	return &http.Transport{
-		DialContext:     dohDialContext,
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
-	}
+	return net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 10*time.Second)
 }
 
 // --- TCP tunnel ---
 
 func handleTCPConnect(session, host string, port int) {
-	resolved, err := resolveHost(host)
-	if err != nil {
-		sendToDash(map[string]interface{}{"type": "error", "session": session, "msg": err.Error()})
-		log.Printf("DNS error [%s]: %v", session, err)
-		return
-	}
-	addr := fmt.Sprintf("%s:%d", resolved, port)
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	conn, err := dialTCP(host, port)
 	if err != nil {
 		sendToDash(map[string]interface{}{"type": "error", "session": session, "msg": err.Error()})
 		log.Printf("TCP error [%s]: %v", session, err)
@@ -250,7 +275,7 @@ func handleTCPConnect(session, host string, port int) {
 	sessionMu.Unlock()
 
 	sendToDash(map[string]interface{}{"type": "connected", "session": session})
-	log.Printf("TCP [%s] -> %s", session, addr)
+	log.Printf("TCP [%s] -> %s:%d", session, host, port)
 
 	go func() {
 		buf := make([]byte, 4096)
@@ -318,7 +343,7 @@ func handleFetch(id, rawURL, method, headers, body string, timeout int, follow, 
 	}
 
 	client := &http.Client{
-		Transport: dohTransport(insecure),
+		Transport: proxyTransport(insecure),
 		Timeout:   time.Duration(timeout) * time.Second,
 	}
 	if !follow {
@@ -553,6 +578,8 @@ func main() {
 		addr = os.Args[1]
 	}
 
+	systemProxy = detectProxy()
+
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("Listen failed: %v", err)
@@ -561,6 +588,11 @@ func main() {
 	log.Println("========================================")
 	log.Printf("Dashboard: http://%s/", addr)
 	log.Printf("WebSocket: ws://%s", addr)
+	if systemProxy != "" {
+		log.Printf("Proxy: %s", systemProxy)
+	} else {
+		log.Println("Proxy: none (direct)")
+	}
 	log.Println("========================================")
 	log.Println("Put dashboard.html in same directory")
 
