@@ -166,16 +166,26 @@ func resolveHost(host string) (string, error) {
 	}
 	log.Printf("DNS [system] %s failed: %v, trying DoH", host, err)
 
+	dohClient := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+		},
+	}
+
 	dohURL := fmt.Sprintf("https://1.1.1.1/dns-query?name=%s&type=A", url.QueryEscape(host))
 	req, _ := http.NewRequest("GET", dohURL, nil)
 	req.Header.Set("Accept", "application/dns-json")
-	client := &http.Client{
-		Timeout:   5 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
-	}
-	resp, err := client.Do(req)
+	resp, err := dohClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("system DNS and DoH both failed: %v", err)
+		dohURL = fmt.Sprintf("https://8.8.8.8/resolve?name=%s&type=A", url.QueryEscape(host))
+		req, _ = http.NewRequest("GET", dohURL, nil)
+		req.Header.Set("Accept", "application/dns-json")
+		resp, err = dohClient.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("system DNS and DoH both failed: %v", err)
+		}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32768))
@@ -196,6 +206,25 @@ func resolveHost(host string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no A record for %s via DoH", host)
+}
+
+func dohDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := resolveHost(host)
+	if err != nil {
+		return nil, err
+	}
+	return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, net.JoinHostPort(resolved, port))
+}
+
+func dohTransport(insecure bool) *http.Transport {
+	return &http.Transport{
+		DialContext:     dohDialContext,
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
+	}
 }
 
 // --- TCP tunnel ---
@@ -288,11 +317,8 @@ func handleFetch(id, rawURL, method, headers, body string, timeout int, follow, 
 		timeout = 30
 	}
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
-	}
 	client := &http.Client{
-		Transport: tr,
+		Transport: dohTransport(insecure),
 		Timeout:   time.Duration(timeout) * time.Second,
 	}
 	if !follow {
