@@ -91,6 +91,9 @@ function Read-WsFrame($s, $timeoutMs = 100) {
         $s.Read($mask, 0, 4) | Out-Null
     }
 
+    $maxFrame = 16 * 1024 * 1024 # 16 MB
+    if ($len -gt $maxFrame) { Log "Frame too large: $len bytes" Red; return $null }
+
     if ($len -eq 0) { return @{op=$op; data=[byte[]]@()} }
 
     $payload = New-Object byte[] $len

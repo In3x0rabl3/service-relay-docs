@@ -84,7 +84,7 @@ class WebSocketServer:
         try:
             self.writer.write(bytes(frame))
             await self.writer.drain()
-        except:
+        except Exception:
             self.closed = True
 
     async def recv(self):
@@ -102,6 +102,8 @@ class WebSocketServer:
             mask = None
             if masked:
                 mask = await self.reader.readexactly(4)
+            if length > 16 * 1024 * 1024:
+                raise ValueError(f'frame too large: {length} bytes')
             if length == 0:
                 return b''
             payload = bytearray(await self.reader.readexactly(length))
@@ -109,7 +111,7 @@ class WebSocketServer:
                 for i in range(length):
                     payload[i] ^= mask[i % 4]
             return bytes(payload)
-        except:
+        except Exception:
             self.closed = True
             return None
 
@@ -124,7 +126,7 @@ async def handle_browser_message(data):
     global sessions, connect_waiters
     try:
         msg = json.loads(data)
-    except:
+    except Exception:
         return
 
     msg_type = msg.get('type', '')
@@ -153,7 +155,7 @@ async def handle_browser_message(data):
         if sid in sessions:
             try:
                 sessions[sid]['writer'].close()
-            except:
+            except Exception:
                 pass
             del sessions[sid]
 
@@ -165,7 +167,7 @@ async def handle_browser_message(data):
         if sid in sessions:
             try:
                 sessions[sid]['writer'].close()
-            except:
+            except Exception:
                 pass
             del sessions[sid]
 
@@ -317,7 +319,7 @@ async def handle_socks(reader, writer):
     finally:
         try:
             writer.close()
-        except:
+        except Exception:
             pass
 
 

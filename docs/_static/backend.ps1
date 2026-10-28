@@ -79,6 +79,9 @@ function Read-WsFrame($stream, $timeoutMs = 50) {
     $mask = $null
     if ($masked) { $mask = New-Object byte[] 4; $stream.Read($mask, 0, 4) | Out-Null }
 
+    $maxFrame = 16 * 1024 * 1024 # 16 MB
+    if ($len -gt $maxFrame) { Log "Frame too large: $len bytes" "ERR"; return $null }
+
     if ($len -eq 0) { return @{op=$op; data=[byte[]]@()} }
 
     $payload = New-Object byte[] $len
@@ -113,7 +116,7 @@ function Serve-StaticFile($stream, $path) {
         $ct = if ($clean.EndsWith('.html')) { 'text/html' }
               elseif ($clean.EndsWith('.py') -or $clean.EndsWith('.ps1')) { 'text/plain' }
               else { 'application/octet-stream' }
-        $hdr = "HTTP/1.1 200 OK`r`nContent-Type: $ct`r`nContent-Length: $($data.Length)`r`nAccess-Control-Allow-Origin: *`r`n`r`n"
+        $hdr = "HTTP/1.1 200 OK`r`nContent-Type: $ct`r`nContent-Length: $($data.Length)`r`n`r`n"
         $hdrBytes = [Text.Encoding]::ASCII.GetBytes($hdr)
         $stream.Write($hdrBytes, 0, $hdrBytes.Length)
         $stream.Write($data, 0, $data.Length)

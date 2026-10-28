@@ -32,7 +32,7 @@ class WS:
         else: f.append(127); f.extend(struct.pack('>Q', len(data)))
         f.extend(data)
         try: self.w.write(bytes(f)); await self.w.drain()
-        except: self.closed = True
+        except Exception: self.closed = True
 
     async def recv(self):
         try:
@@ -41,13 +41,15 @@ class WS:
             if op == 0x8: return None
             if ln == 126: ln = struct.unpack('>H', await self.r.readexactly(2))[0]
             elif ln == 127: ln = struct.unpack('>Q', await self.r.readexactly(8))[0]
+            if ln > 16 * 1024 * 1024:
+                raise ValueError(f'frame too large: {ln} bytes')
             if h[1] & 0x80:
                 mask = await self.r.readexactly(4)
                 data = bytearray(await self.r.readexactly(ln))
                 for i in range(ln): data[i] ^= mask[i % 4]
             else: data = await self.r.readexactly(ln)
             return data.decode() if op == 1 else data
-        except: self.closed = True; return None
+        except Exception: self.closed = True; return None
 
 
 async def handle_fetch(ws, req_id, url, method='GET', headers_str='', body='', timeout=30, follow=True, insecure=True, cookies='', user_agent=''):
@@ -169,8 +171,8 @@ async def handle_client(reader, writer):
                 with open(path, 'rb') as f:
                     data = f.read()
                 ct = 'text/html' if path.endswith('.html') else 'application/octet-stream'
-                writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: ' + ct.encode() + b'\r\nContent-Length: ' + str(len(data)).encode() + b'\r\nAccess-Control-Allow-Origin: *\r\n\r\n' + data)
-            except:
+                writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: ' + ct.encode() + b'\r\nContent-Length: ' + str(len(data)).encode() + b'\r\n\r\n' + data)
+            except Exception:
                 writer.write(b'HTTP/1.1 404 Not Found\r\n\r\nFile not found: ' + path.encode())
             await writer.drain(); writer.close(); return
 
@@ -216,7 +218,7 @@ async def handle_ws(ws):
         for s in list(ws_sessions):
             if s in sessions:
                 try: sessions[s]['w'].close()
-                except: pass
+                except Exception: pass
                 del sessions[s]
         log.info(f'Cleaned up {len(ws_sessions)} sessions')
 
