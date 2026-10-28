@@ -58,7 +58,7 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 <div class="section">
 <div class="section-title">Room</div>
 <div class="row">
-<input id="room" placeholder="CODE" maxlength="8" style="width:100px;text-transform:uppercase;text-align:center;font-family:monospace;font-size:14px">
+<input id="room" placeholder="ROOM CODE" maxlength="12" style="width:120px;text-transform:uppercase;text-align:center;font-family:monospace;font-size:14px">
 <button id="btnJoin">Join</button>
 <button id="btnNew">New</button>
 </div>
@@ -128,11 +128,13 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 
 <script>
 var room,ably,channel,backend,bridge,pending={},fid=0,myId,peerId=null,connected=false,fileChunks={};
+var ablyKey=localStorage.getItem('ably_key')||'';
 var $=function(i){return document.getElementById(i)};
 var log=function(m,c){var l=$('log');var d=document.createElement('div');d.style.color=c||'#555';d.textContent=m;l.appendChild(d);while(l.children.length>100)l.removeChild(l.firstChild);l.scrollTop=9999};
 var setS=function(i,on,t){var e=$(i);e.className='status '+(on?'on':'off');e.textContent=t||(on?'online':'offline')};
 var addChat=function(el){var c=$('chat');c.appendChild(el);while(c.children.length>500)c.removeChild(c.firstChild);c.scrollTop=9999};
 setInterval(function(){var now=Date.now();for(var k in fileChunks){if(now-fileChunks[k].ts>60000){log('file transfer timeout: '+k,'#a66');delete fileChunks[k];}}},10000);
+function promptAblyKey(){ablyKey=prompt('Enter Ably API key:','');if(ablyKey){localStorage.setItem('ably_key',ablyKey);return true;}return false;}
 
 var backendAutoReconnect=false;
 function connectBackend(){
@@ -255,6 +257,7 @@ bridge.send(JSON.stringify(msg));
 }
 
 function joinRoom(code,isNew){
+if(!ablyKey&&!promptAblyKey()){log('no API key','#a66');return;}
 if(channel){try{channel.unsubscribe();}catch(e){}}
 if(ably){try{ably.close();}catch(e){}}
 room=code.toUpperCase();
@@ -269,7 +272,7 @@ $('btnJoin').disabled=$('btnNew').disabled=true;
 log('connecting...');
 
 ably=new Ably.Realtime({
-key:'gAgqHA.yZ5GzA:6o4_ysot75A7YNoDEicN23KmBcI3isDJL3uYIUp3Ibg',
+key:ablyKey,
 clientId:myId
 });
 
@@ -530,7 +533,7 @@ $('httpOut').style.color='#a66';
 }
 }
 
-var gen=function(){return'XXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
+var gen=function(){return'XXXXXXXX'.replace(/X/g,function(){return'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]})};
 
 $('btnBackend').onclick=connectBackend;
 $('btnBridge').onclick=function(){tryConnectBridge(true)};

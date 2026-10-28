@@ -168,6 +168,11 @@ func wsReadFrame(conn net.Conn) ([]byte, int, error) {
 		}
 	}
 
+	const maxFrameSize = 16 << 20 // 16 MB
+	if length > maxFrameSize {
+		return nil, 0, fmt.Errorf("frame too large: %d bytes", length)
+	}
+
 	if length == 0 {
 		return []byte{}, opcode, nil
 	}
@@ -239,6 +244,10 @@ func parseProxyString(proxy string) string {
 
 func proxyFromPAC(pacURL string) string {
 	log.Printf("PAC URL: %s", pacURL)
+	if !strings.HasPrefix(pacURL, "http://") && !strings.HasPrefix(pacURL, "https://") {
+		log.Printf("PAC URL rejected: not http(s)")
+		return ""
+	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(pacURL)
 	if err != nil {
@@ -962,7 +971,7 @@ func handleConnection(conn net.Conn) {
 					} else if strings.HasSuffix(clean, ".py") || strings.HasSuffix(clean, ".ps1") {
 						ct = "text/plain"
 					}
-					resp := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\nAccess-Control-Allow-Origin: *\r\n\r\n", ct, len(data))
+					resp := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n", ct, len(data))
 					conn.Write([]byte(resp))
 					conn.Write(data)
 				}
