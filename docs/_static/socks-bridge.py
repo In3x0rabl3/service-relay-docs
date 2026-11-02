@@ -123,10 +123,10 @@ async def send_to_browser(msg):
     global browser_ws
     if browser_ws and not browser_ws.closed:
         data = json.dumps(msg)
-        print(f"  → browser: {msg.get('type','')} {msg.get('session','')[:12]}")
+        print(f"  -> browser: {msg.get('type','')} {msg.get('session','')[:12]}")
         await browser_ws.send(data)
     else:
-        print(f"  → browser: DROPPED (no ws) {msg.get('type','')}")
+        print(f"  -> browser: DROPPED (no ws) {msg.get('type','')}")
 
 
 async def handle_browser_message(data):
@@ -134,12 +134,12 @@ async def handle_browser_message(data):
     try:
         msg = json.loads(data)
     except Exception:
-        print(f"  ← browser: invalid JSON")
+        print(f"  <- browser: invalid JSON")
         return
 
     msg_type = msg.get('type', '')
     sid = msg.get('session', '')
-    print(f"  ← browser: {msg_type} {sid[:12] if sid else ''}")
+    print(f"  <- browser: {msg_type} {sid[:12] if sid else ''}")
 
     if msg_type == 'tcp_connected':
         print(f"TCP connected: {sid}")

@@ -394,7 +394,7 @@ if(cfg.bin){
 var pad=new Uint8Array(256);for(var p=0;p<256;p++)pad[p]=Math.floor(Math.random()*256);
 var combined=new Uint8Array(data.byteLength+256);combined.set(new Uint8Array(data),0);combined.set(pad,data.byteLength);
 var s='';for(var i=0;i<combined.length;i++)s+=String.fromCharCode(combined[i]);b64=btoa(s);
-}else{b64=btoa(data);}
+}else{b64=btoa(unescape(encodeURIComponent(data)));}
 var chunkSize=40000,total=Math.ceil(b64.length/chunkSize);
 log('sending '+total+' chunks ('+Math.round((cfg.bin?data.byteLength:data.length)/1024)+'KB)');
 var sendChunk=function(c){
