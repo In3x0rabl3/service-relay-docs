@@ -115,16 +115,44 @@ async def handle_fetch(ws, req_id, url, method='GET', headers_str='', body='', t
         log.error(f'Fetch error: {e}')
 
 
+HTTP_PROXY = os.environ.get('HTTP_PROXY', os.environ.get('HTTPS_PROXY', ''))
+
+async def connect_via_proxy(host, port, proxy_url):
+    """CONNECT tunnel through HTTP proxy."""
+    from urllib.parse import urlparse
+    p = urlparse(proxy_url if '://' in proxy_url else f'http://{proxy_url}')
+    phost, pport = p.hostname, p.port or 8080
+    log.info(f'[proxy] dialing {phost}:{pport}')
+    r, w = await asyncio.wait_for(asyncio.open_connection(phost, pport), 10)
+    w.write(f'CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n'.encode())
+    await w.drain()
+    resp = b''
+    while b'\r\n\r\n' not in resp:
+        chunk = await asyncio.wait_for(r.read(4096), 10)
+        if not chunk: raise Exception('proxy closed')
+        resp += chunk
+    status_line = resp.split(b'\r\n')[0].decode()
+    if '200' not in status_line:
+        w.close()
+        raise Exception(f'proxy CONNECT failed: {status_line}')
+    log.info(f'[proxy] {status_line}')
+    return r, w
+
 async def handle_tcp(ws, session, host, port):
     try:
-        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), 10)
+        if HTTP_PROXY:
+            reader, writer = await connect_via_proxy(host, port, HTTP_PROXY)
+        else:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), 10)
         sessions[session] = {'r': reader, 'w': writer, 'ws': ws}
         await ws.send(json.dumps({'type': 'connected', 'session': session}))
         log.info(f'TCP [{session}] -> {host}:{port}')
         while True:
-            data = await reader.read(4096)
+            data = await asyncio.wait_for(reader.read(4096), 120)
             if not data: break
             await ws.send(json.dumps({'type': 'data', 'session': session, 'data': base64.b64encode(data).decode()}))
+    except asyncio.TimeoutError:
+        log.info(f'TCP [{session}] read timeout (120s idle)')
     except Exception as e:
         await ws.send(json.dumps({'type': 'error', 'session': session, 'msg': str(e)}))
     finally:
