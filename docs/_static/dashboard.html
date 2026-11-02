@@ -157,6 +157,7 @@ channel.publish('data',{type:'response',from:myId,id:m.id,status:m.status,header
 }
 else if(m.type==='connected'){
 log('tcp connected: '+m.session);
+if(window._tcpTimers&&window._tcpTimers[m.session]){clearTimeout(window._tcpTimers[m.session]);delete window._tcpTimers[m.session];}
 if(channel)channel.publish('data',{type:'tcp_connected',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
 sendToBridge({type:'tcp_connected',session:m.session});
 }
@@ -180,6 +181,7 @@ sendToBridge({type:'tcp_closed',session:m.session});
 }
 else if(m.type==='error'){
 log('tcp error: '+m.msg,'#a66');
+if(window._tcpTimers&&window._tcpTimers[m.session]){clearTimeout(window._tcpTimers[m.session]);delete window._tcpTimers[m.session];}
 if(channel)channel.publish('data',{type:'tcp_error',from:myId,session:m.session,error:m.msg},function(e){if(e)log('relay err: '+e.message,'#a66')});
 sendToBridge({type:'tcp_error',session:m.session,error:m.msg});
 }
@@ -359,6 +361,14 @@ else if(d.type==='tcp_connect'){
 log('peer tcp connect: '+d.host+':'+d.port);
 if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'connect',session:d.session,host:d.host,port:d.port}));
+if(!window._tcpTimers)window._tcpTimers={};
+window._tcpTimers[d.session]=setTimeout(function(){
+if(window._tcpTimers&&window._tcpTimers[d.session]){
+log('tcp_connect timeout (backend silent 10s): '+d.session,'#f80');
+delete window._tcpTimers[d.session];
+if(channel)channel.publish('data',{type:'tcp_error',from:myId,session:d.session,error:'backend timeout'});
+}
+},10000);
 }else{
 log('no backend for tcp_connect','#a66');
 channel.publish('data',{type:'tcp_error',from:myId,session:d.session,error:'no backend'});
