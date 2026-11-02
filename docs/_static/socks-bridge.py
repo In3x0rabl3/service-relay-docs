@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-SOCKS5 Bridge (Browser Mode) - Python version
-Connects through your browser dashboard to relay SOCKS5 traffic.
+SOCKS5 Bridge - Python version
+Relays SOCKS5 traffic through Ably pub/sub to a peer dashboard+backend.
+
+Modes:
+  direct (default) - connects to Ably directly, no browser needed
+  browser          - relays through a browser dashboard WebSocket
 """
 
 import asyncio
@@ -16,19 +20,28 @@ import platform
 import subprocess
 import atexit
 import signal
+import threading
+import urllib.request
+import http.client
+import ssl
 
 BRIDGE_PORT = 9998
 SOCKS_PORT = 1080
+ABLY_KEY = 'gAgqHA.yZ5GzA:6o4_ysot75A7YNoDEicN23KmBcI3isDJL3uYIUp3Ibg'
+ABLY_AUTH = base64.b64encode(ABLY_KEY.encode()).decode()
 
 room = ""
+mode = "direct"
+my_id = ""
 browser_ws = None
 sessions = {}
 connect_waiters = {}
 ready_event = asyncio.Event()
+ably_queue = None
+main_loop = None
 revocation_was_on = False
 
 def disable_revocation_check():
-    """Disable Windows SSL revocation check to fix CRYPT_E_REVOCATION_OFFLINE."""
     global revocation_was_on
     if platform.system() != 'Windows':
         return
@@ -48,7 +61,6 @@ def disable_revocation_check():
         pass
 
 def restore_revocation_check():
-    """Restore Windows SSL revocation check on exit."""
     if platform.system() != 'Windows' or not revocation_was_on:
         return
     try:
@@ -59,6 +71,129 @@ def restore_revocation_check():
         print("SSL revocation check restored")
     except Exception:
         pass
+
+
+# -- Ably helpers (direct mode) -------------------------------------------
+
+def ably_publish(data):
+    payload = json.dumps({'name': 'data', 'data': data}).encode()
+    req = urllib.request.Request(
+        f'https://rest.ably.io/channels/relay-{room}/messages',
+        data=payload,
+        headers={'Authorization': f'Basic {ABLY_AUTH}', 'Content-Type': 'application/json'})
+    urllib.request.urlopen(req, timeout=10)
+
+def ably_sse_thread():
+    global main_loop
+    while True:
+        try:
+            ctx = ssl.create_default_context()
+            conn = http.client.HTTPSConnection('realtime.ably.io', context=ctx, timeout=120)
+            conn.request('GET', f'/sse?channels=relay-{room}&v=1.2',
+                         headers={'Authorization': f'Basic {ABLY_AUTH}', 'Accept': 'text/event-stream'})
+            resp = conn.getresponse()
+            if resp.status != 200:
+                print(f"  SSE error: {resp.status}")
+                time.sleep(3)
+                continue
+            print(f"  Ably connected (SSE)")
+            buf = b''
+            while True:
+                byte = resp.read(1)
+                if not byte:
+                    break
+                buf += byte
+                if buf.endswith(b'\n\n'):
+                    lines = buf.decode(errors='replace').strip().split('\n')
+                    buf = b''
+                    for l in lines:
+                        if l.startswith('data:'):
+                            try:
+                                env = json.loads(l[5:].strip())
+                                d = env.get('data', '')
+                                if isinstance(d, str):
+                                    try:
+                                        d = json.loads(d)
+                                    except Exception:
+                                        pass
+                                if isinstance(d, dict) and d.get('from') != my_id:
+                                    if main_loop and ably_queue:
+                                        asyncio.run_coroutine_threadsafe(ably_queue.put(d), main_loop)
+                            except Exception:
+                                pass
+        except Exception as e:
+            print(f"  SSE reconnecting... ({e})")
+            time.sleep(3)
+
+
+async def handle_ably_messages():
+    global sessions, connect_waiters
+    while True:
+        d = await ably_queue.get()
+        msg_type = d.get('type', '')
+        sid = d.get('session', '')
+        fr = str(d.get('from', ''))[:8]
+
+        if msg_type == 'tcp_connected':
+            print(f"  TCP connected: {sid[:12]} (from {fr})")
+            if sid in connect_waiters:
+                connect_waiters[sid].set_result(True)
+
+        elif msg_type == 'tcp_data':
+            b64 = d.get('data', '')
+            if sid in sessions:
+                try:
+                    data = base64.b64decode(b64)
+                    sessions[sid]['writer'].write(data)
+                    await sessions[sid]['writer'].drain()
+                    print(f"  << {sid[:12]} {len(data)}B")
+                except Exception as e:
+                    print(f"  << {sid[:12]} WRITE ERR: {e}")
+
+        elif msg_type == 'tcp_closed':
+            print(f"  TCP closed: {sid[:12]} (from {fr})")
+            if sid in sessions:
+                try:
+                    sessions[sid]['writer'].close()
+                except Exception:
+                    pass
+                del sessions[sid]
+
+        elif msg_type == 'tcp_error':
+            err = d.get('error', 'unknown')
+            print(f"  TCP error [{sid[:12]}]: {err}")
+            if sid in connect_waiters:
+                connect_waiters[sid].set_result(False)
+            if sid in sessions:
+                try:
+                    sessions[sid]['writer'].close()
+                except Exception:
+                    pass
+                del sessions[sid]
+
+        elif msg_type == 'hello':
+            print(f"  Peer online: {fr}")
+            ably_publish({'type': 'hello', 'from': my_id})
+
+        elif msg_type == 'ping':
+            pass
+
+
+async def send_to_relay(msg):
+    if mode == 'direct':
+        msg['from'] = my_id
+        t = msg.get('type', '')
+        sid = msg.get('session', '')[:12]
+        print(f"  -> relay: {t} {sid}")
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, ably_publish, msg)
+        except Exception as e:
+            print(f"  -> relay: PUBLISH ERR: {e}")
+    else:
+        await send_to_browser(msg)
+
+
+# -- Browser WS helpers (browser mode) ------------------------------------
 
 class WebSocketServer:
     def __init__(self, reader, writer):
@@ -105,8 +240,6 @@ class WebSocketServer:
             mask = None
             if masked:
                 mask = await self.reader.readexactly(4)
-            if length > 16 * 1024 * 1024:
-                raise ValueError(f'frame too large: {length} bytes')
             if length == 0:
                 return b''
             payload = bytearray(await self.reader.readexactly(length))
@@ -123,10 +256,10 @@ async def send_to_browser(msg):
     global browser_ws
     if browser_ws and not browser_ws.closed:
         data = json.dumps(msg)
-        print(f"  -> browser: {msg.get('type','')} {msg.get('session','')[:12]}")
+        print(f"  -> browser: {msg.get('type', '')} {msg.get('session', '')[:12]}")
         await browser_ws.send(data)
     else:
-        print(f"  -> browser: DROPPED (no ws) {msg.get('type','')}")
+        print(f"  -> browser: DROPPED (no ws) {msg.get('type', '')}")
 
 
 async def handle_browser_message(data):
@@ -134,15 +267,13 @@ async def handle_browser_message(data):
     try:
         msg = json.loads(data)
     except Exception:
-        print(f"  <- browser: invalid JSON")
         return
 
     msg_type = msg.get('type', '')
     sid = msg.get('session', '')
-    print(f"  <- browser: {msg_type} {sid[:12] if sid else ''}")
 
     if msg_type == 'tcp_connected':
-        print(f"TCP connected: {sid}")
+        print(f"  TCP connected: {sid[:12]}")
         if sid in connect_waiters:
             connect_waiters[sid].set_result(True)
 
@@ -150,17 +281,15 @@ async def handle_browser_message(data):
         b64 = msg.get('data', '')
         if sid in sessions:
             try:
-                data = base64.b64decode(b64)
-                sessions[sid]['writer'].write(data)
+                raw = base64.b64decode(b64)
+                sessions[sid]['writer'].write(raw)
                 await sessions[sid]['writer'].drain()
-                print(f"  << {sid} {len(data)}B")
+                print(f"  << {sid[:12]} {len(raw)}B")
             except Exception as e:
-                print(f"  << {sid} WRITE ERR: {e}")
-        else:
-            print(f"  << {sid} NO SESSION (dropped)")
+                print(f"  << {sid[:12]} WRITE ERR: {e}")
 
     elif msg_type == 'tcp_closed':
-        print(f"TCP closed: {sid}")
+        print(f"  TCP closed: {sid[:12]}")
         if sid in sessions:
             try:
                 sessions[sid]['writer'].close()
@@ -170,7 +299,7 @@ async def handle_browser_message(data):
 
     elif msg_type == 'tcp_error':
         err = msg.get('error', 'unknown')
-        print(f"TCP error [{sid}]: {err}")
+        print(f"  TCP error [{sid[:12]}]: {err}")
         if sid in connect_waiters:
             connect_waiters[sid].set_result(False)
         if sid in sessions:
@@ -241,10 +370,10 @@ async def handle_browser_conn(reader, writer):
             if not waiter.done():
                 waiter.set_result(False)
         connect_waiters.clear()
-    else:
-        print("Old browser connection closed (replaced by newer)")
     writer.close()
 
+
+# -- SOCKS5 handler -------------------------------------------------------
 
 async def handle_socks(reader, writer):
     global sessions, connect_waiters
@@ -263,10 +392,10 @@ async def handle_socks(reader, writer):
             return
 
         atyp = request[3]
-        if atyp == 1:  # IPv4
+        if atyp == 1:
             host = f"{request[4]}.{request[5]}.{request[6]}.{request[7]}"
             port = (request[8] << 8) | request[9]
-        elif atyp == 3:  # Domain
+        elif atyp == 3:
             length = request[4]
             host = request[5:5+length].decode()
             port = (request[5+length] << 8) | request[6+length]
@@ -276,7 +405,7 @@ async def handle_socks(reader, writer):
             writer.close()
             return
 
-        print(f"CONNECT {host}:{port}")
+        print(f"\nCONNECT {host}:{port}")
 
         sid = f"s{hashlib.sha256(os.urandom(8)).hexdigest()[:8]}"
 
@@ -284,7 +413,7 @@ async def handle_socks(reader, writer):
         connect_waiters[sid] = waiter
         sessions[sid] = {'reader': reader, 'writer': writer}
 
-        await send_to_browser({
+        await send_to_relay({
             'type': 'tcp_connect',
             'session': sid,
             'host': host,
@@ -294,14 +423,14 @@ async def handle_socks(reader, writer):
         try:
             result = await asyncio.wait_for(waiter, timeout=15)
             if not result:
-                print(f"  {sid} connect REJECTED by peer")
+                print(f"  {sid[:12]} connect REJECTED by peer")
                 writer.write(b'\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00')
                 await writer.drain()
                 del sessions[sid]
                 writer.close()
                 return
         except asyncio.TimeoutError:
-            print(f"  {sid} connect TIMEOUT (15s, no response from relay)")
+            print(f"  {sid[:12]} connect TIMEOUT (15s, no response from relay)")
             writer.write(b'\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00')
             await writer.drain()
             if sid in sessions:
@@ -315,14 +444,15 @@ async def handle_socks(reader, writer):
         writer.write(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')
         await writer.drain()
 
+        print(f"  {sid[:12]} tunnel open")
+
         while sid in sessions:
             try:
                 data = await asyncio.wait_for(reader.read(4096), timeout=0.1)
                 if not data:
-                    print(f"  {sid} EOF from client")
                     break
-                print(f"  >> {sid} {len(data)}B")
-                await send_to_browser({
+                print(f"  >> {sid[:12]} {len(data)}B")
+                await send_to_relay({
                     'type': 'tcp_data',
                     'session': sid,
                     'data': base64.b64encode(data).decode()
@@ -330,13 +460,13 @@ async def handle_socks(reader, writer):
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                print(f"  {sid} relay error: {e}")
+                print(f"  {sid[:12]} relay error: {e}")
                 break
 
         if sid in sessions:
             del sessions[sid]
 
-        await send_to_browser({'type': 'tcp_close', 'session': sid})
+        await send_to_relay({'type': 'tcp_close', 'session': sid})
 
     except Exception as e:
         print(f"SOCKS error: {e}")
@@ -347,65 +477,112 @@ async def handle_socks(reader, writer):
             pass
 
 
+# -- Main -----------------------------------------------------------------
+
 async def main():
-    global room
+    global room, mode, my_id, ably_queue, main_loop
 
-    print("=== SOCKS5 Bridge (Browser Mode) ===")
+    print("=== SOCKS5 Bridge ===")
     print()
-    print("This bridge connects through your browser.")
-    print()
-    print("Usage: python3 socks-bridge.py <ROOM> [local]")
-    print("  local - listen on 127.0.0.1 only (default: 0.0.0.0)")
+    print("Usage: python3 socks-bridge.py <ROOM> [local] [browser]")
+    print("  local   - listen on 127.0.0.1 only (default: 0.0.0.0)")
+    print("  browser - use browser dashboard relay (default: direct Ably)")
     print()
 
-    # Disable Windows SSL revocation check (fixes CRYPT_E_REVOCATION_OFFLINE)
     disable_revocation_check()
     atexit.register(restore_revocation_check)
 
     listen_addr = "0.0.0.0"
+    mode = "direct"
 
     if len(sys.argv) < 2:
         room = input("Enter room code: ").strip().upper()
     else:
         room = sys.argv[1].upper()
-        if len(sys.argv) >= 3 and sys.argv[2].lower() == 'local':
-            listen_addr = "127.0.0.1"
+        for arg in sys.argv[2:]:
+            if arg.lower() == 'local':
+                listen_addr = "127.0.0.1"
+            elif arg.lower() == 'browser':
+                mode = "browser"
 
     if len(room) < 4:
         print("ERROR: Room code must be at least 4 characters")
         sys.exit(1)
 
+    my_id = hashlib.sha256(os.urandom(4)).hexdigest()[:8]
+
     print(f"Room: {room}")
+    print(f"Mode: {mode}")
+    print(f"ID:   {my_id}")
     print()
 
-    bridge_server = await asyncio.start_server(handle_browser_conn, '127.0.0.1', BRIDGE_PORT)
-    print(f"Bridge server: ws://127.0.0.1:{BRIDGE_PORT}")
+    main_loop = asyncio.get_running_loop()
 
-    print("Waiting for browser connection...")
-    print()
-    print("In your browser, open the dashboard and enter this room code.")
-    print("The dashboard will connect to this bridge automatically.")
-    print()
+    if mode == 'direct':
+        ably_queue = asyncio.Queue()
+        threading.Thread(target=ably_sse_thread, daemon=True).start()
+        await asyncio.sleep(2)
 
-    try:
-        await asyncio.wait_for(ready_event.wait(), timeout=120)
-    except asyncio.TimeoutError:
-        print("ERROR: Timeout waiting for browser")
-        sys.exit(1)
+        ably_publish({'type': 'hello', 'from': my_id})
+        print("Sent hello, waiting for peer...")
 
-    socks_server = await asyncio.start_server(handle_socks, listen_addr, SOCKS_PORT)
-    print(f"\nSOCKS5 proxy running on {listen_addr}:{SOCKS_PORT}")
-    print()
-    if listen_addr == "127.0.0.1":
-        print(f"Configure apps to use: SOCKS5 127.0.0.1:{SOCKS_PORT}")
+        got_peer = False
+        for _ in range(15):
+            try:
+                d = await asyncio.wait_for(ably_queue.get(), timeout=2)
+                if d.get('type') == 'hello':
+                    print(f"Peer found: {str(d.get('from',''))[:8]}")
+                    got_peer = True
+                    break
+            except asyncio.TimeoutError:
+                continue
+
+        if not got_peer:
+            print("WARNING: No peer responded to hello (continuing anyway)")
+            print("Make sure the peer dashboard is open on the same room.")
+        print()
+
+        ably_task = asyncio.create_task(handle_ably_messages())
+
+        socks_server = await asyncio.start_server(handle_socks, listen_addr, SOCKS_PORT)
+        print(f"SOCKS5 proxy running on {listen_addr}:{SOCKS_PORT}")
+        print()
+        if listen_addr == "127.0.0.1":
+            print(f"Configure apps to use: SOCKS5 127.0.0.1:{SOCKS_PORT}")
+        else:
+            print(f"Configure apps to use: SOCKS5 <this-ip>:{SOCKS_PORT}")
+        print()
+
+        await socks_server.serve_forever()
+
     else:
-        print(f"Configure apps to use: SOCKS5 <this-ip>:{SOCKS_PORT}")
-    print()
+        bridge_server = await asyncio.start_server(handle_browser_conn, '127.0.0.1', BRIDGE_PORT)
+        print(f"Bridge server: ws://127.0.0.1:{BRIDGE_PORT}")
+        print("Waiting for browser connection...")
+        print()
+        print("In your browser, open the dashboard and enter this room code.")
+        print("The dashboard will connect to this bridge automatically.")
+        print()
 
-    await asyncio.gather(
-        bridge_server.serve_forever(),
-        socks_server.serve_forever()
-    )
+        try:
+            await asyncio.wait_for(ready_event.wait(), timeout=120)
+        except asyncio.TimeoutError:
+            print("ERROR: Timeout waiting for browser")
+            sys.exit(1)
+
+        socks_server = await asyncio.start_server(handle_socks, listen_addr, SOCKS_PORT)
+        print(f"\nSOCKS5 proxy running on {listen_addr}:{SOCKS_PORT}")
+        print()
+        if listen_addr == "127.0.0.1":
+            print(f"Configure apps to use: SOCKS5 127.0.0.1:{SOCKS_PORT}")
+        else:
+            print(f"Configure apps to use: SOCKS5 <this-ip>:{SOCKS_PORT}")
+        print()
+
+        await asyncio.gather(
+            bridge_server.serve_forever(),
+            socks_server.serve_forever()
+        )
 
 
 if __name__ == '__main__':
