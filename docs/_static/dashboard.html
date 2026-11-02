@@ -221,7 +221,7 @@ bridge.onmessage=function(e){
 var m;try{m=JSON.parse(e.data);}catch(ex){return;}
 if(m.type==='bridge_init'){
 log('bridge room: '+m.room);
-if(m.room&&!room){joinRoom(m.room,false);}
+if(m.room&&m.room.toUpperCase()!==room){log('switching to bridge room','#fa0');joinRoom(m.room,false);}
 }else if(m.type==='tcp_connect'){
 log('bridge tcp: '+m.host+':'+m.port+' sid='+m.session);
 if(channel&&peerId){
