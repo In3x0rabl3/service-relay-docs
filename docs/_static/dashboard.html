@@ -225,8 +225,8 @@ if(m.room&&!room){joinRoom(m.room,false);}
 }else if(m.type==='tcp_connect'){
 log('bridge tcp: '+m.host+':'+m.port+' sid='+m.session);
 if(channel&&peerId){
-log('→ably: tcp_connect to peer '+peerId.substring(0,6),'#666');
-channel.publish('data',{type:'tcp_connect',from:myId,session:m.session,host:m.host,port:m.port},function(e){if(e)log('relay err: '+e.message,'#a66');else log('→ably: published ok','#666');});
+log('→ably: tcp_connect to '+peerId.substring(0,6)+' ch='+channel.state,'#666');
+channel.publish('data',{type:'tcp_connect',from:myId,session:m.session,host:m.host,port:m.port},function(e){if(e)log('relay PUBLISH ERR: '+e.message,'#f00');else log('→ably: published ok','#6a6');});
 }else if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'connect',session:m.session,host:m.host,port:m.port}));
 }else{log('no route for tcp_connect (channel='+(!!channel)+' peer='+(!!peerId)+')','#a66');}
@@ -285,9 +285,15 @@ if(subscribed)return;
 subscribed=true;
 
 channel=ably.channels.get('relay-'+room);
+channel.on('failed',function(sc){log('CHANNEL FAILED: '+sc.reason,'#f00');});
+channel.on('suspended',function(){log('CHANNEL SUSPENDED','#f00');});
+channel.on('detached',function(){log('CHANNEL DETACHED','#fa0');});
 channel.subscribe(function(msg){
+try{
 var d=msg.data;
+if(typeof d==='string'){try{d=JSON.parse(d);}catch(e){return;}}
 if(!d||d.from===myId)return;
+log('ably<< '+d.type+' from='+String(d.from||'').substring(0,6),'#555');
 
 if(d.type==='hello'&&!connected){
 peerId=d.from;
@@ -408,6 +414,7 @@ log(cfg.name+' error: '+e.message,'#a66');
 channel.publish('data',{type:'response',from:myId,id:d.id,error:e.message});
 });
 }
+}catch(err){log('SUBSCRIBE ERR: '+err.message,'#f00');console.error(err);}
 });
 
 channel.on('attached',function(){
