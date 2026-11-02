@@ -201,7 +201,7 @@ var bridgeReconnectTimer=null,bridgeRetries=0;
 function tryConnectBridge(manual){
 if(bridgeReconnectTimer){clearTimeout(bridgeReconnectTimer);bridgeReconnectTimer=null;}
 if(manual)bridgeRetries=0;
-if(bridgeRetries>=5){log('bridge retry limit reached — click Connect to retry','#a66');return;}
+if(bridge&&bridge.readyState<=1)return;
 try{
 bridge=new WebSocket('ws://127.0.0.1:9998');
 bridge.onopen=function(){
@@ -213,15 +213,15 @@ bridge.onclose=function(){
 setS('socksStatus',0,'offline');
 bridge=null;
 bridgeRetries++;
-if(bridgeRetries<5)bridgeReconnectTimer=setTimeout(tryConnectBridge,3000);
+var delay=Math.min(3000*Math.pow(1.5,bridgeRetries),30000);
+bridgeReconnectTimer=setTimeout(tryConnectBridge,delay);
 };
-bridge.onerror=function(e){
-bridge=null;
-};
+bridge.onerror=function(){};
 bridge.onmessage=function(e){
 var m;try{m=JSON.parse(e.data);}catch(ex){return;}
 if(m.type==='bridge_init'){
 log('bridge room: '+m.room);
+if(m.room&&!room){joinRoom(m.room,false);}
 }else if(m.type==='tcp_connect'){
 log('bridge tcp: '+m.host+':'+m.port);
 if(channel&&peerId){

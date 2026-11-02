@@ -84,7 +84,7 @@ class WebSocketServer:
         try:
             self.writer.write(bytes(frame))
             await self.writer.drain()
-        except:
+        except Exception:
             self.closed = True
 
     async def recv(self):
@@ -99,6 +99,9 @@ class WebSocketServer:
                 length = struct.unpack('>H', await self.reader.readexactly(2))[0]
             elif length == 127:
                 length = struct.unpack('>Q', await self.reader.readexactly(8))[0]
+            if length > 16 << 20:
+                self.closed = True
+                return None
             mask = None
             if masked:
                 mask = await self.reader.readexactly(4)
@@ -109,7 +112,7 @@ class WebSocketServer:
                 for i in range(length):
                     payload[i] ^= mask[i % 4]
             return bytes(payload)
-        except:
+        except Exception:
             self.closed = True
             return None
 
@@ -124,7 +127,7 @@ async def handle_browser_message(data):
     global sessions, connect_waiters
     try:
         msg = json.loads(data)
-    except:
+    except Exception:
         return
 
     msg_type = msg.get('type', '')
@@ -153,7 +156,7 @@ async def handle_browser_message(data):
         if sid in sessions:
             try:
                 sessions[sid]['writer'].close()
-            except:
+            except Exception:
                 pass
             del sessions[sid]
 
@@ -165,7 +168,7 @@ async def handle_browser_message(data):
         if sid in sessions:
             try:
                 sessions[sid]['writer'].close()
-            except:
+            except Exception:
                 pass
             del sessions[sid]
 
@@ -219,6 +222,16 @@ async def handle_browser_conn(reader, writer):
 
     browser_ws = None
     print("Browser disconnected")
+    for sid in list(sessions):
+        try:
+            sessions[sid]['writer'].close()
+        except Exception:
+            pass
+    sessions.clear()
+    for sid, waiter in list(connect_waiters.items()):
+        if not waiter.done():
+            waiter.set_result(False)
+    connect_waiters.clear()
     writer.close()
 
 
@@ -256,7 +269,7 @@ async def handle_socks(reader, writer):
 
         sid = f"s{hashlib.sha256(os.urandom(8)).hexdigest()[:8]}"
 
-        waiter = asyncio.get_event_loop().create_future()
+        waiter = asyncio.get_running_loop().create_future()
         connect_waiters[sid] = waiter
         sessions[sid] = {'reader': reader, 'writer': writer}
 
@@ -317,7 +330,7 @@ async def handle_socks(reader, writer):
     finally:
         try:
             writer.close()
-        except:
+        except Exception:
             pass
 
 

@@ -91,6 +91,8 @@ function Read-WsFrame($s, $timeoutMs = 100) {
         $s.Read($mask, 0, 4) | Out-Null
     }
 
+    if ($len -gt (16 * 1024 * 1024)) { return @{op=8; data=$null} }
+
     if ($len -eq 0) { return @{op=$op; data=[byte[]]@()} }
 
     $payload = New-Object byte[] $len
@@ -324,7 +326,10 @@ try {
             }
 
             # Generate session ID
-            $sid = "s" + ([DateTimeOffset]::Now.ToUnixTimeMilliseconds() % 1000000)
+            $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+            $rb = New-Object byte[] 8
+            $rng.GetBytes($rb)
+            $sid = "s" + [BitConverter]::ToString($rb).Replace("-","").Substring(0,8).ToLower()
 
             Log "CONNECT ${host_}:${port_}"
 
