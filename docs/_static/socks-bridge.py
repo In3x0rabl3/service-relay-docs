@@ -191,6 +191,8 @@ async def handle_ably_messages():
 
         elif msg_type == 'tcp_closed':
             print(f"  TCP closed: {sid[:12]} (from {fr})")
+            if sid in connect_waiters:
+                connect_waiters[sid].set_result(False)
             if sid in sessions:
                 try:
                     sessions[sid]['writer'].close()

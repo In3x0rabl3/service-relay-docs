@@ -189,7 +189,7 @@ sendToBridge({type:'tcp_data',session:m.session,data:m.data});
 }
 else if(m.type==='closed'||m.type==='close'){
 log('tcp closed: '+m.session);
-ablyREST({type:'tcp_closed',from:myId,session:m.session});
+(function(s){setTimeout(function(){ablyREST({type:'tcp_closed',from:myId,session:s});},500);})(m.session);
 sendToBridge({type:'tcp_closed',session:m.session});
 }
 else if(m.type==='error'){
