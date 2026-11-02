@@ -127,7 +127,7 @@ select{background:#222;color:#ccc;border:1px solid #333;border-radius:3px}
 </div>
 
 <script>
-var room,ably,channel,backend,bridge,pending={},fid=0,myId,peerId=null,connected=false,fileChunks={};
+var room,ably,channel,backend,bridge,pending={},fid=0,myId,peerId=null,connected=false,fileChunks={},bridgeMsgQueue=[];
 var $=function(i){return document.getElementById(i)};
 var log=function(m,c){var l=$('log');var d=document.createElement('div');d.style.color=c||'#555';d.textContent=m;l.appendChild(d);while(l.children.length>100)l.removeChild(l.firstChild);l.scrollTop=9999};
 var setS=function(i,on,t){var e=$(i);e.className='status '+(on?'on':'off');e.textContent=t||(on?'online':'offline')};
@@ -197,6 +197,22 @@ $('msg').focus();
 tryConnectBridge();
 }
 
+function flushBridgeMsg(m){
+var t=m.type;
+if(t==='tcp_connect'){
+log('→ably: tcp_connect ch='+channel.state,'#666');
+channel.publish('data',{type:'tcp_connect',from:myId,session:m.session,host:m.host,port:m.port},function(e){if(e)log('PUBLISH ERR: '+e.message,'#f00');else log('→ably: published ok','#6a6');});
+}else if(t==='tcp_data'){
+channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:m.data},function(e){if(e)log('relay err: '+e.message,'#a66')});
+}else if(t==='tcp_close'){
+channel.publish('data',{type:'tcp_close',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
+}
+}
+function flushBridgeQueue(){
+if(bridgeMsgQueue.length)log('flushing '+bridgeMsgQueue.length+' queued msg','#6a6');
+while(bridgeMsgQueue.length){flushBridgeMsg(bridgeMsgQueue.shift());}
+}
+
 var bridgeReconnectTimer=null,bridgeRetries=0;
 function tryConnectBridge(manual){
 if(bridgeReconnectTimer){clearTimeout(bridgeReconnectTimer);bridgeReconnectTimer=null;}
@@ -222,27 +238,17 @@ var m;try{m=JSON.parse(e.data);}catch(ex){return;}
 if(m.type==='bridge_init'){
 log('bridge room: '+m.room);
 if(m.room&&m.room.toUpperCase()!==room){log('switching to bridge room','#fa0');joinRoom(m.room,false);}
-}else if(m.type==='tcp_connect'){
-log('bridge tcp: '+m.host+':'+m.port+' sid='+m.session);
-if(channel){
-log('→ably: tcp_connect ch='+channel.state,'#666');
-channel.publish('data',{type:'tcp_connect',from:myId,session:m.session,host:m.host,port:m.port},function(e){if(e)log('relay PUBLISH ERR: '+e.message,'#f00');else log('→ably: published ok','#6a6');});
-}else if(backend&&backend.readyState===1){
-backend.send(JSON.stringify({type:'connect',session:m.session,host:m.host,port:m.port}));
-}else{log('no route for tcp_connect (channel='+(!!channel)+' peer='+(!!peerId)+')','#a66');}
-}else if(m.type==='tcp_data'){
-log('⬆ bridge→relay '+m.session+' '+(m.data?m.data.length:0)+'b','#666');
-if(channel){
-channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:m.data},function(e){if(e)log('relay err: '+e.message,'#a66')});
-}else if(backend&&backend.readyState===1){
-backend.send(JSON.stringify({type:'data',session:m.session,data:m.data}));
-}else{log('no route for tcp_data','#a66');}
-}else if(m.type==='tcp_close'){
-log('bridge tcp close: '+m.session);
-if(channel){
-channel.publish('data',{type:'tcp_close',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
-}else if(backend&&backend.readyState===1){
-backend.send(JSON.stringify({type:'close',session:m.session}));
+}else if(m.type==='tcp_connect'||m.type==='tcp_data'||m.type==='tcp_close'){
+if(m.type==='tcp_connect')log('bridge tcp: '+m.host+':'+m.port+' sid='+m.session);
+else if(m.type==='tcp_data')log('⬆ bridge→relay '+m.session+' '+(m.data?m.data.length:0)+'b','#666');
+else log('bridge tcp close: '+m.session);
+if(channel){flushBridgeMsg(m);}
+else if(backend&&backend.readyState===1){
+var bt={tcp_connect:'connect',tcp_data:'data',tcp_close:'close'}[m.type];
+backend.send(JSON.stringify({type:bt,session:m.session,host:m.host,port:m.port,data:m.data}));
+}else{
+bridgeMsgQueue.push(m);
+log('queued '+m.type+' (channel connecting…)','#fa0');
 }
 }
 };
@@ -425,6 +431,7 @@ setS('peerStatus',0,'waiting');
 log('joining room...');
 channel.publish('data',{type:'hello',from:myId});
 }
+flushBridgeQueue();
 });
 });
 
