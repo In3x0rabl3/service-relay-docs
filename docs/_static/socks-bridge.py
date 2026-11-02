@@ -125,6 +125,45 @@ def ably_sse_thread():
             print(f"  SSE reconnecting... ({e})")
             time.sleep(3)
 
+seen_ids = set()
+
+def ably_poll_thread():
+    global main_loop
+    while True:
+        time.sleep(2)
+        if not connect_waiters:
+            continue
+        try:
+            ctx = ssl.create_default_context()
+            conn = http.client.HTTPSConnection('rest.ably.io', context=ctx, timeout=10)
+            conn.request('GET', f'/channels/relay-{room}/messages?limit=10&direction=backwards',
+                         headers={'Authorization': f'Basic {ABLY_AUTH}', 'Accept': 'application/json'})
+            resp = conn.getresponse()
+            if resp.status != 200:
+                continue
+            msgs = json.loads(resp.read())
+            for msg in reversed(msgs):
+                mid = msg.get('id', '')
+                if mid in seen_ids:
+                    continue
+                seen_ids.add(mid)
+                if len(seen_ids) > 500:
+                    seen_ids.clear()
+                d = msg.get('data', '')
+                if isinstance(d, str):
+                    try:
+                        d = json.loads(d)
+                    except Exception:
+                        pass
+                if isinstance(d, dict) and d.get('from') != my_id:
+                    t = d.get('type', '')
+                    if t in ('tcp_connected', 'tcp_data', 'tcp_closed', 'tcp_error'):
+                        print(f"  [poll] {t} {d.get('session','')[:12]}")
+                        if main_loop and ably_queue:
+                            asyncio.run_coroutine_threadsafe(ably_queue.put(d), main_loop)
+        except Exception:
+            pass
+
 
 async def handle_ably_messages():
     global sessions, connect_waiters
@@ -521,6 +560,7 @@ async def main():
     if mode == 'direct':
         ably_queue = asyncio.Queue()
         threading.Thread(target=ably_sse_thread, daemon=True).start()
+        threading.Thread(target=ably_poll_thread, daemon=True).start()
         await asyncio.sleep(2)
 
         ably_publish({'type': 'hello', 'from': my_id})

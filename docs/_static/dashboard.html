@@ -157,9 +157,10 @@ channel.publish('data',{type:'response',from:myId,id:m.id,status:m.status,header
 }
 }
 else if(m.type==='connected'||m.type==='connect'){
-log('tcp connected: '+m.session);
+log('tcp connected: '+m.session,'#4c4');
 if(window._tcpTimers&&window._tcpTimers[m.session]){clearTimeout(window._tcpTimers[m.session]);delete window._tcpTimers[m.session];}
-if(channel)channel.publish('data',{type:'tcp_connected',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
+log('publishing tcp_connected to ably (ch='+(channel?channel.state:'null')+')...','#888');
+if(channel){channel.publish('data',JSON.stringify({type:'tcp_connected',from:myId,session:m.session}),function(e){if(e)log('PUBLISH FAIL tcp_connected: '+e.message,'#f00');else log('tcp_connected PUBLISHED OK','#6a6');});}else{log('NO CHANNEL for tcp_connected','#f00');}
 sendToBridge({type:'tcp_connected',session:m.session});
 }
 else if(m.type==='data'){
@@ -168,16 +169,16 @@ log('⬆ backend→relay '+m.session+' '+d.length+'b','#666');
 if(d.length>12000){
 for(var i=0;i<d.length;i+=12000){
 var chunk=d.substring(i,i+12000);
-if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:chunk},function(e){if(e)log('relay err: '+e.message,'#a66')});
+if(channel)channel.publish('data',JSON.stringify({type:'tcp_data',from:myId,session:m.session,data:chunk}),function(e){if(e)log('PUBLISH FAIL data: '+e.message,'#f00')});
 }
 }else{
-if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,data:d},function(e){if(e)log('relay err: '+e.message,'#a66')});
+if(channel)channel.publish('data',JSON.stringify({type:'tcp_data',from:myId,session:m.session,data:d}),function(e){if(e)log('PUBLISH FAIL data: '+e.message,'#f00')});
 }
 sendToBridge({type:'tcp_data',session:m.session,data:m.data});
 }
 else if(m.type==='closed'||m.type==='close'){
 log('tcp closed: '+m.session);
-if(channel)channel.publish('data',{type:'tcp_closed',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
+if(channel)channel.publish('data',JSON.stringify({type:'tcp_closed',from:myId,session:m.session}),function(e){if(e)log('PUBLISH FAIL closed: '+e.message,'#f00');else log('tcp_closed PUBLISHED OK','#6a6')});
 sendToBridge({type:'tcp_closed',session:m.session});
 }
 else if(m.type==='error'){
