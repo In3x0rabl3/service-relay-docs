@@ -327,7 +327,10 @@ try {
             }
 
             # Generate session ID
-            $sid = "s" + ([DateTimeOffset]::Now.ToUnixTimeMilliseconds() % 1000000)
+            $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+            $rb = New-Object byte[] 8
+            $rng.GetBytes($rb)
+            $sid = "s" + [BitConverter]::ToString($rb).Replace("-","").Substring(0,8).ToLower()
 
             Log "CONNECT ${host_}:${port_}"
 
