@@ -146,6 +146,7 @@ backend.onerror=function(e){log('backend error','#a66');console.error(e)};
 backend.onclose=function(){setS('backendStatus',0,'offline');backend=null;if(backendAutoReconnect){log('reconnecting in 3s...');setTimeout(connectBackend,3000);}};
 backend.onmessage=function(e){
 var m;try{m=JSON.parse(e.data);}catch(ex){log('invalid backend msg','#a66');return;}
+if(!m.session&&(m.sessionId||m.sid))m.session=m.sessionId||m.sid;
 if(m.type==='fetch_response'){
 log('fetch response: '+(m.body?m.body.length+'b':'error'));
 if(pending[m.id]){pending[m.id](m);delete pending[m.id];}
@@ -155,7 +156,7 @@ if(body.length>50000)body=body.substring(0,50000)+'<!--truncated-->';
 channel.publish('data',{type:'response',from:myId,id:m.id,status:m.status,headers:m.headers,body:body,error:m.error});
 }
 }
-else if(m.type==='connected'){
+else if(m.type==='connected'||m.type==='connect'){
 log('tcp connected: '+m.session);
 if(window._tcpTimers&&window._tcpTimers[m.session]){clearTimeout(window._tcpTimers[m.session]);delete window._tcpTimers[m.session];}
 if(channel)channel.publish('data',{type:'tcp_connected',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
@@ -174,19 +175,21 @@ if(channel)channel.publish('data',{type:'tcp_data',from:myId,session:m.session,d
 }
 sendToBridge({type:'tcp_data',session:m.session,data:m.data});
 }
-else if(m.type==='closed'){
+else if(m.type==='closed'||m.type==='close'){
 log('tcp closed: '+m.session);
 if(channel)channel.publish('data',{type:'tcp_closed',from:myId,session:m.session},function(e){if(e)log('relay err: '+e.message,'#a66')});
 sendToBridge({type:'tcp_closed',session:m.session});
 }
 else if(m.type==='error'){
-log('tcp error: '+m.msg,'#a66');
+var emsg=m.msg||m.error||'unknown';
+log('tcp error: '+emsg,'#a66');
 if(window._tcpTimers&&window._tcpTimers[m.session]){clearTimeout(window._tcpTimers[m.session]);delete window._tcpTimers[m.session];}
-if(channel)channel.publish('data',{type:'tcp_error',from:myId,session:m.session,error:m.msg},function(e){if(e)log('relay err: '+e.message,'#a66')});
-sendToBridge({type:'tcp_error',session:m.session,error:m.msg});
+if(channel)channel.publish('data',{type:'tcp_error',from:myId,session:m.session,error:emsg},function(e){if(e)log('relay err: '+e.message,'#a66')});
+sendToBridge({type:'tcp_error',session:m.session,error:emsg});
 }
+else{log('backend msg: '+m.type+' '+JSON.stringify(m).substring(0,80),'#888');}
 };
-}catch(e){log('backend error','#a66')}
+}catch(e){log('backend error: '+e,'#a66')}
 }
 
 function setConnected(){
