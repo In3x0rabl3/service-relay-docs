@@ -170,6 +170,7 @@ channel.publish('data',{type:'response',from:myId,id:m.id,status:m.status,header
 else if(m.type==='connected'||m.type==='connect'){
 log('tcp connected: '+m.session,'#4c4');
 if(window._tcpTimers&&window._tcpTimers[m.session]){clearTimeout(window._tcpTimers[m.session]);delete window._tcpTimers[m.session];}
+if(window._initData&&window._initData[m.session]){backend.send(JSON.stringify({type:'data',session:m.session,data:window._initData[m.session]}));log('⬆ initial_data sent to backend','#6a6');delete window._initData[m.session];}
 ablyREST({type:'tcp_connected',from:myId,session:m.session});
 sendToBridge({type:'tcp_connected',session:m.session});
 }
@@ -375,6 +376,7 @@ else if(d.type==='tcp_connect'){
 log('peer tcp connect: '+d.host+':'+d.port);
 if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'connect',session:d.session,host:d.host,port:d.port}));
+if(d.initial_data){if(!window._initData)window._initData={};window._initData[d.session]=d.initial_data;log('buffered '+d.initial_data.length+'b initial data','#888');}
 if(!window._tcpTimers)window._tcpTimers={};
 window._tcpTimers[d.session]=setTimeout(function(){
 if(window._tcpTimers&&window._tcpTimers[d.session]){

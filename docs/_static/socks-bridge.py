@@ -448,30 +448,43 @@ async def handle_socks(reader, writer):
 
         sid = f"s{hashlib.sha256(os.urandom(8)).hexdigest()[:8]}"
 
+        # Send SOCKS success early so client starts sending data
+        writer.write(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')
+        await writer.drain()
+
+        # Read initial data from client (TLS ClientHello / HTTP request)
+        initial_data = b''
+        try:
+            initial_data = await asyncio.wait_for(reader.read(4096), timeout=2)
+            if initial_data:
+                print(f"  {sid[:12]} pre-read {len(initial_data)}B")
+        except asyncio.TimeoutError:
+            pass
+
         waiter = asyncio.get_running_loop().create_future()
         connect_waiters[sid] = waiter
         sessions[sid] = {'reader': reader, 'writer': writer}
 
-        await send_to_relay({
+        msg = {
             'type': 'tcp_connect',
             'session': sid,
             'host': host,
             'port': port
-        })
+        }
+        if initial_data:
+            msg['initial_data'] = base64.b64encode(initial_data).decode()
+        await send_to_relay(msg)
 
         try:
-            result = await asyncio.wait_for(waiter, timeout=15)
+            result = await asyncio.wait_for(waiter, timeout=20)
             if not result:
                 print(f"  {sid[:12]} connect REJECTED by peer")
-                writer.write(b'\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00')
-                await writer.drain()
-                del sessions[sid]
+                if sid in sessions:
+                    del sessions[sid]
                 writer.close()
                 return
         except asyncio.TimeoutError:
-            print(f"  {sid[:12]} connect TIMEOUT (15s, no response from relay)")
-            writer.write(b'\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00')
-            await writer.drain()
+            print(f"  {sid[:12]} connect TIMEOUT (20s, no response from relay)")
             if sid in sessions:
                 del sessions[sid]
             writer.close()
@@ -479,9 +492,6 @@ async def handle_socks(reader, writer):
         finally:
             if sid in connect_waiters:
                 del connect_waiters[sid]
-
-        writer.write(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')
-        await writer.drain()
 
         print(f"  {sid[:12]} tunnel open")
 
