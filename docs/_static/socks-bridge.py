@@ -122,7 +122,11 @@ class WebSocketServer:
 async def send_to_browser(msg):
     global browser_ws
     if browser_ws and not browser_ws.closed:
-        await browser_ws.send(json.dumps(msg))
+        data = json.dumps(msg)
+        print(f"  → browser: {msg.get('type','')} {msg.get('session','')[:12]}")
+        await browser_ws.send(data)
+    else:
+        print(f"  → browser: DROPPED (no ws) {msg.get('type','')}")
 
 
 async def handle_browser_message(data):
@@ -130,10 +134,12 @@ async def handle_browser_message(data):
     try:
         msg = json.loads(data)
     except Exception:
+        print(f"  ← browser: invalid JSON")
         return
 
     msg_type = msg.get('type', '')
     sid = msg.get('session', '')
+    print(f"  ← browser: {msg_type} {sid[:12] if sid else ''}")
 
     if msg_type == 'tcp_connected':
         print(f"TCP connected: {sid}")
@@ -222,18 +228,21 @@ async def handle_browser_conn(reader, writer):
             break
         await handle_browser_message(data)
 
-    browser_ws = None
-    print("Browser disconnected")
-    for sid in list(sessions):
-        try:
-            sessions[sid]['writer'].close()
-        except Exception:
-            pass
-    sessions.clear()
-    for sid, waiter in list(connect_waiters.items()):
-        if not waiter.done():
-            waiter.set_result(False)
-    connect_waiters.clear()
+    if browser_ws is ws:
+        browser_ws = None
+        print("Browser disconnected")
+        for sid in list(sessions):
+            try:
+                sessions[sid]['writer'].close()
+            except Exception:
+                pass
+        sessions.clear()
+        for sid, waiter in list(connect_waiters.items()):
+            if not waiter.done():
+                waiter.set_result(False)
+        connect_waiters.clear()
+    else:
+        print("Old browser connection closed (replaced by newer)")
     writer.close()
 
 
@@ -285,12 +294,14 @@ async def handle_socks(reader, writer):
         try:
             result = await asyncio.wait_for(waiter, timeout=15)
             if not result:
+                print(f"  {sid} connect REJECTED by peer")
                 writer.write(b'\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00')
                 await writer.drain()
                 del sessions[sid]
                 writer.close()
                 return
         except asyncio.TimeoutError:
+            print(f"  {sid} connect TIMEOUT (15s, no response from relay)")
             writer.write(b'\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00')
             await writer.drain()
             if sid in sessions:

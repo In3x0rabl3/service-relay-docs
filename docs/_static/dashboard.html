@@ -223,12 +223,13 @@ if(m.type==='bridge_init'){
 log('bridge room: '+m.room);
 if(m.room&&!room){joinRoom(m.room,false);}
 }else if(m.type==='tcp_connect'){
-log('bridge tcp: '+m.host+':'+m.port);
+log('bridge tcp: '+m.host+':'+m.port+' sid='+m.session);
 if(channel&&peerId){
-channel.publish('data',{type:'tcp_connect',from:myId,session:m.session,host:m.host,port:m.port},function(e){if(e)log('relay err: '+e.message,'#a66')});
+log('→ably: tcp_connect to peer '+peerId.substring(0,6),'#666');
+channel.publish('data',{type:'tcp_connect',from:myId,session:m.session,host:m.host,port:m.port},function(e){if(e)log('relay err: '+e.message,'#a66');else log('→ably: published ok','#666');});
 }else if(backend&&backend.readyState===1){
 backend.send(JSON.stringify({type:'connect',session:m.session,host:m.host,port:m.port}));
-}else{log('no route for tcp_connect','#a66');}
+}else{log('no route for tcp_connect (channel='+(!!channel)+' peer='+(!!peerId)+')','#a66');}
 }else if(m.type==='tcp_data'){
 log('⬆ bridge→relay '+m.session+' '+(m.data?m.data.length:0)+'b','#666');
 if(channel&&peerId){
@@ -250,7 +251,10 @@ backend.send(JSON.stringify({type:'close',session:m.session}));
 
 function sendToBridge(msg){
 if(bridge&&bridge.readyState===1){
+log('→bridge: '+msg.type+' '+(msg.session||''),'#666');
 bridge.send(JSON.stringify(msg));
+}else{
+log('→bridge: DROPPED (ws '+(bridge?bridge.readyState:'null')+') '+msg.type,'#a66');
 }
 }
 
