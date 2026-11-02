@@ -374,8 +374,10 @@ if(pending[d.id]){pending[d.id](d);}
 else if(d.type==='tcp_connect'){
 log('peer tcp connect: '+d.host+':'+d.port);
 if(backend&&backend.readyState===1){
-backend.send(JSON.stringify({type:'connect',session:d.session,host:d.host,port:d.port}));
-if(d.initial_data){backend.send(JSON.stringify({type:'data',session:d.session,data:d.initial_data}));log('⬆ queued initial_data to backend','#6a6');}
+var cmsg={type:'connect',session:d.session,host:d.host,port:d.port};
+if(d.initial_data)cmsg.data=d.initial_data;
+backend.send(JSON.stringify(cmsg));
+if(d.initial_data){backend.send(JSON.stringify({type:'data',session:d.session,data:d.initial_data}));log('⬆ initial_data in connect + queued data','#6a6');}
 if(!window._tcpTimers)window._tcpTimers={};
 window._tcpTimers[d.session]=setTimeout(function(){
 if(window._tcpTimers&&window._tcpTimers[d.session]){
